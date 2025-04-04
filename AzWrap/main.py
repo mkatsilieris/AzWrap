@@ -4,7 +4,7 @@ import sys
 from dotenv import load_dotenv
 
 # Import wrapper classes
-from .wrapper import (
+from wrapper import (
     Identity, 
     Subscription,
     ResourceGroup,
@@ -28,7 +28,7 @@ def list_resource_groups(subscription):
 
 def list_search_services(subscription):
     """List Azure AI Search services in a subscription."""
-    services = subscription.get_search_sevices()
+    services = subscription.get_search_services()
     print(f"Found {len(services)} search services:")
     for service in services:
         print(f"  - {service.name} (SKU: {service.sku.name}, Location: {service.location})")
@@ -59,6 +59,9 @@ def main():
     load_dotenv()
     
     parser = argparse.ArgumentParser(description="Azure Wrapper (AzWrap) CLI tool")
+
+    parser.add_argument("--auth-method", choices=["service_principal", "interactive"], default="service_principal", help="Authentication method to use (default: service_principal)")
+
     subparsers = parser.add_subparsers(dest="command", help="Command to run")
     
     # List subscriptions command
@@ -86,12 +89,12 @@ def main():
     subscription_id = os.getenv("AZURE_SUBSCRIPTION_ID")
     
     if not all([tenant_id, client_id, client_secret]):
-        print("Error: Azure credentials not found in environment variables.")
+        print("ERROR: Azure credentials not found in environment variables.")
         print("Please set AZURE_TENANT_ID, AZURE_CLIENT_ID, and AZURE_CLIENT_SECRET.")
-        sys.exit(1)
+        # sys.exit(1)
     
     # Create identity object
-    identity = Identity(tenant_id, client_id, client_secret)
+    identity = Identity(tenant_id, client_id, client_secret, auth_method=args.auth_method)
     
     # Process commands
     if args.command == "list-subscriptions":

@@ -29,11 +29,11 @@ class Identity:
 
     subscription_client: SubscriptionClient
 
-    def __init__(self, tenant_id: str, client_id: Optional[str]=None, client_secret: Optional[str]=None, auth_method: str = 'service_principal'):
+    def __init__(self, tenant_id: Optional[str]=None, client_id: Optional[str]=None, client_secret: Optional[str]=None, auth_method: str = 'service_principal'):
         self.tenant_id = tenant_id
         if auth_method == 'interactive':
             from azure.identity import InteractiveBrowserCredential
-            self.credential = InteractiveBrowserCredential()
+            self.credential = InteractiveBrowserCredential(tenant_id="461b7a75-04e3-44de-ba89-d3c08975f3c2")
         elif auth_method == 'service_principal':
             if client_id is None or client_secret is None:
                 raise ValueError("client_id and client_secret must be provided for service principal authentication.")
@@ -48,6 +48,7 @@ class Identity:
             raise ValueError("Invalid auth_method. Must be 'service_principal' or 'interactive'.")
         self.subscription_client = SubscriptionClient(self.credential)
     
+    ##TO DO fix below for InteractiveBrowserCredential case
     def get_credential(self) -> ClientSecretCredential:
         return self.credential
     
