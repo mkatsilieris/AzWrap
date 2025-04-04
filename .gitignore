@@ -4,7 +4,6 @@ dist/**
 
 **/__pycache__/**
 
-AzWrap.egg-info
 
 **/logs/**
 **/remove_*
@@ -12,8 +11,4 @@ working_docs/**
 test/graph_processor1.py
 
 
-AzWrap.egg-info/dependency_links.txt
-AzWrap.egg-info/entry_points.txt
-AzWrap.egg-info/requires.txt
-AzWrap.egg-info/SOURCES.txt
-AzWrap.egg-info/top_level.txt
+AzWrap.egg-info/**
