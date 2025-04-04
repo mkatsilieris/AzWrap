@@ -29,15 +29,23 @@ class Identity:
 
     subscription_client: SubscriptionClient
 
-    def __init__(self, tenant_id: str, client_id: str, client_secret: str):
-        self.client_id = client_id
-        self.client_secret = client_secret
+    def __init__(self, tenant_id: str, client_id: Optional[str]=None, client_secret: Optional[str]=None, auth_method: str = 'service_principal'):
         self.tenant_id = tenant_id
-        self.credential = ClientSecretCredential(tenant_id=tenant_id, client_id=client_id, client_secret=client_secret)
-        #get token to validate credentials
-        token:AccessToken = self.credential.get_token("https://management.azure.com/.default")
-        if token is None:
-            raise ValueError("Failed to get token. Check your credentials.")
+        if auth_method == 'interactive':
+            from azure.identity import InteractiveBrowserCredential
+            self.credential = InteractiveBrowserCredential()
+        elif auth_method == 'service_principal':
+            if client_id is None or client_secret is None:
+                raise ValueError("client_id and client_secret must be provided for service principal authentication.")
+            self.client_id = client_id
+            self.client_secret = client_secret
+            self.credential = ClientSecretCredential(tenant_id=tenant_id, client_id=client_id, client_secret=client_secret)
+            # get token to validate credentials
+            token: AccessToken = self.credential.get_token("https://management.azure.com/.default")
+            if token is None:
+                raise ValueError("Failed to get token. Check your credentials.")
+        else:
+            raise ValueError("Invalid auth_method. Must be 'service_principal' or 'interactive'.")
         self.subscription_client = SubscriptionClient(self.credential)
     
     def get_credential(self) -> ClientSecretCredential:
