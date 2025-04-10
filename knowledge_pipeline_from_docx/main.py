@@ -17,12 +17,12 @@ from AzWrap.wrapper import (
 )
 
 from knowledge_pipeline_from_docx.doc_parsing import DocParsing
-from knowledge_pipeline_from_docx.upload import MultiDocumentProcessor
+from knowledge_pipeline_from_docx.upload import MultiProcessHandler
 
 
 CONTAINER_NAME = os.getenv("CONTAINER_NAME")
-TEMP_PATH = os.getenv("TEMP_PATH")
-FORMAT_JSON_PATH = os.getenv("FORMAT_JSON_PATH")
+TEMP_PATH =  r"C:\Users\agkithko\OneDrive - Netcompany\Desktop\nbg_wrap\AzWrap\temp_json"
+FORMAT_JSON_PATH = r"C:\Users\agkithko\OneDrive - Netcompany\Desktop\nbg_wrap\AzWrap\knowledge_pipeline\format.json"
 SEARCH_SERVICE_NAME = os.getenv("SEARCH_SERVICE_NAME")
 TARGET_ACCOUNT_NAME = os.getenv("TARGET_ACCOUNT_NAME")
 RESOURCE_GROUP = os.getenv("RESOURCE_GROUP")
@@ -33,6 +33,7 @@ SUBSCRIPTION_ID = os.getenv("AZURE_SUBSCRIPTION_ID")
 CORE_INDEX_NAME = os.getenv("CORE_INDEX_NAME")
 DETAILED_INDEX_NAME = os.getenv("DETAILED_INDEX_NAME")
 ACCOUNT_NAME = os.getenv("ACCOUNT_NAME")
+MODEL_NAME = os.getenv("MODEL_NAME")
 
 
 def load_format(format_path):
@@ -93,6 +94,7 @@ def initialize_clients():
 
     rg = sub.get_resource_group(RESOURCE_GROUP)
     storage_account = rg.get_storage_account(ACCOUNT_NAME)
+    print(CONTAINER_NAME)
     container = storage_account.get_container(CONTAINER_NAME)
     folder_structure = container.get_folder_structure()
 
@@ -190,7 +192,7 @@ def main():
             parser.doc_to_json(doc_name=file.replace('.docx', ""))
 
             json_files = get_all_files_in_directory(TEMP_PATH)
-            processor = MultiDocumentProcessor(json_files, clients["core"], clients["detail"], clients["azure_oai"])
+            processor = MultiProcessHandler(json_files, clients["core"], clients["detail"], clients["azure_oai"])
 
             records = processor.process_documents()
             processor.upload_to_azure_index(records, CORE_INDEX_NAME, DETAILED_INDEX_NAME)
@@ -203,6 +205,7 @@ def main():
         except Exception as e:
             print(f"⚠️ Error processing {file}: {e}")
             log_failed_file(file)  # Log the failed file
+            log_failed_file(e)
             continue  # Skip to the next file
 
 

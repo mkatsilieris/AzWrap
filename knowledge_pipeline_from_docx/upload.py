@@ -12,11 +12,11 @@ AZWRAP_ROOT = os.path.abspath(os.path.join(CURRENT_DIR, ".."))  # parent of my_t
 
 # Add AzWrap project root to sys.path
 sys.path.append(AZWRAP_ROOT)
-from knowledge_pipeline_from_docx.json_processing import ProcessDocument
+from knowledge_pipeline_from_docx.json_processing import ProcessHandler
 
 load_dotenv()
 
-class MultiDocumentProcessor:
+class MultiProcessHandler:
     def __init__(self, json_paths: List[str] , client_core , client_detail , oai_client ):
         """
         Initializes the class with a list of JSON paths.
@@ -37,7 +37,7 @@ class MultiDocumentProcessor:
                 print(f"Error: The file {json_path} does not exist.")
                 continue
             try:
-                document_processor = ProcessDocument(json_path)
+                document_processor = ProcessHandler(json_path)
                 core_record, detailed_records = document_processor.prepare_for_upload()
                 all_records.append({
                     'core': core_record,

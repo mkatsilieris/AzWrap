@@ -2,7 +2,7 @@ import hashlib
 import json
 from typing import List, Dict
 
-class ProcessDocument:
+class ProcessHandler:
     def __init__(self, json_path: str):
         """
         Initializes the class with the path to a JSON file.
