@@ -19,7 +19,7 @@ from AzWrap.wrapper import (
 from knowledge_pipeline_from_docx.doc_parsing import DocParsing
 from knowledge_pipeline_from_docx.upload import MultiProcessHandler
 
-
+load_dotenv()
 CONTAINER_NAME = os.getenv("CONTAINER_NAME")
 TEMP_PATH =  r"C:\Users\agkithko\OneDrive - Netcompany\Desktop\nbg_wrap\AzWrap\temp_json"
 FORMAT_JSON_PATH = r"C:\Users\agkithko\OneDrive - Netcompany\Desktop\nbg_wrap\AzWrap\knowledge_pipeline\format.json"
