@@ -185,6 +185,19 @@ class ResourceGroup:
         if account is None:
             raise ValueError(f"Storage account with name {account_name} not found.")
         return StorageAccount(self, account)
+    
+    from typing import List
+
+    def get_all_storage_accounts(self) -> List["StorageAccount"]:
+        storage_client = self.subscription.get_storage_management_client()
+        try:
+            accounts = storage_client.storage_accounts.list()
+        except Exception as e:
+            print(f"Error at ResourceGroup.get_all_storage_accounts(): {str(e)}")
+            raise e
+
+        return [StorageAccount(self, acc) for acc in accounts]
+
 
     def create_storage_account(self, account_name: str, location: str) -> "StorageAccount":
         storage_client = self.subscription.get_storage_management_client()
@@ -1660,6 +1673,16 @@ class AIService:
             azure_endpoint= f"https://{self.azure_account.name}.openai.azure.com/",
         )
         return OpenAIClient(self, openai_client) 
+    
+    def get_AzureOpenAIClient(self, api_version:str) -> "AzureOpenAI" :
+        keys = self.cognitive_client.accounts.list_keys(self.resource_group.get_name(), self.azure_account.name)
+        openai_client = AzureOpenAI(
+            api_key=keys.key1,
+            api_version=api_version,
+            azure_endpoint= f"https://{self.azure_account.name}.openai.azure.com/",
+        )
+        return openai_client 
+    
 
     def get_models(self, azure_location: str = None) -> List[azcsm.Model]:
         if (azure_location is None): 
