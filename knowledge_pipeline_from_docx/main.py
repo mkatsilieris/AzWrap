@@ -4,6 +4,8 @@ from io import BytesIO
 from docx import Document
 from dotenv import load_dotenv
 import json
+from tqdm import tqdm
+
 
 # === Dynamic Path Setup ===
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -17,12 +19,12 @@ from AzWrap.wrapper import (
 )
 
 from knowledge_pipeline_from_docx.doc_parsing import DocParsing
-from knowledge_pipeline_from_docx.upload import MultiProcessHandler
+from knowledge_pipeline_from_docx.ingestion import MultiProcessHandler
 
 load_dotenv()
 CONTAINER_NAME = os.getenv("CONTAINER_NAME")
-TEMP_PATH =  r"C:\Users\agkithko\OneDrive - Netcompany\Desktop\nbg_wrap\AzWrap\temp_json"
-FORMAT_JSON_PATH = r"C:\Users\agkithko\OneDrive - Netcompany\Desktop\nbg_wrap\AzWrap\knowledge_pipeline\format.json"
+TEMP_PATH =  r"C:\Users\agkithko\OneDrive - Netcompany\Desktop\AzWrap-1\temp_json"r"C:\Users\agkithko\OneDrive - Netcompany\Desktop\nbg_wrap\AzWrap\temp_json"
+FORMAT_JSON_PATH = r"C:\Users\agkithko\OneDrive - Netcompany\Desktop\AzWrap-1\knowledge_pipeline_from_docx\format.json"
 SEARCH_SERVICE_NAME = os.getenv("SEARCH_SERVICE_NAME")
 TARGET_ACCOUNT_NAME = os.getenv("TARGET_ACCOUNT_NAME")
 RESOURCE_GROUP = os.getenv("RESOURCE_GROUP")
@@ -115,8 +117,6 @@ def initialize_clients():
 
 import os
 
-import os
-
 CHECKPOINT_FILE = "processed_files.txt"
 FAILED_FILE_LOG = "failed_files.txt"
 
@@ -162,12 +162,13 @@ def main():
     # If there are failed files, try to process them first
     for folder, files in clients["folder_structure"].items():
         for file in files:
-            if file not in processed_files and file not in failed_files:
+            if file in failed_files:
                 files_to_process.add((folder, file))  # Add as a tuple (folder, file)
 
     # Then process the files_to_process
-    for folder, file in files_to_process:
+    for folder, file in tqdm(files_to_process):
         blob_path = f"{folder}/{file}" if folder else file
+        delete_files_in_directory(TEMP_PATH)
         try:
             print(f"Processing {folder}/{file}...")
             blob = clients["container"].get_blob_content(blob_path)
@@ -189,23 +190,21 @@ def main():
                 model_name=MODEL_NAME,
                 doc_name=file.replace('.docx', "")
             )
+
             parser.doc_to_json(doc_name=file.replace('.docx', ""))
 
-            json_files = get_all_files_in_directory(TEMP_PATH)
+            json_files = get_all_files_in_directory(r"C:\Users\agkithko\OneDrive - Netcompany\Desktop\AzWrap-1\temp_json")
             processor = MultiProcessHandler(json_files, clients["core"], clients["detail"], clients["azure_oai"])
 
             records = processor.process_documents()
             processor.upload_to_azure_index(records, CORE_INDEX_NAME, DETAILED_INDEX_NAME)
-            delete_files_in_directory(TEMP_PATH)
-
             # Successfully processed, save it to checkpoint
             save_processed_file(file)
             print(f"✅ {file} processed successfully!")
 
         except Exception as e:
             print(f"⚠️ Error processing {file}: {e}")
-            log_failed_file(file)  # Log the failed file
-            log_failed_file(e)
+            log_failed_file(f"{file} problem: {e}")  # Log the failed file
             continue  # Skip to the next file
 
 

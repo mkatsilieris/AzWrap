@@ -93,7 +93,7 @@ class DocParsing:
             
             # For debugging
             if header_title == "Metadata" and lines:
-                print(f"Header lines did not match process title pattern: {lines}")
+                print(f"")
                 
             return header_title
         except Exception as e:
@@ -147,8 +147,6 @@ class DocParsing:
                 section_headers.add(header_title)
                 non_metadata_sections += 1
         
-        print(f"Found {len(section_headers)} distinct headers: {section_headers}")
-        
         # A document is single-process if only one unique header title exists
         # or if there are zero unique titles (simple document)
         if len(section_headers) <= 1:
@@ -168,9 +166,6 @@ class DocParsing:
         
         # Check if single or multiple process document
         is_single_process_bool, single_header = self.is_single_process(doc, doc_name)
-        
-        print(f"Document type: {'Single process' if is_single_process_bool else 'Multi-process'}")
-        print(f"Single header: {single_header}" if is_single_process_bool else "Processing multiple processes")
         
         if is_single_process_bool:
             # Single process document processing
@@ -276,8 +271,6 @@ class DocParsing:
             os.makedirs(output_dir)
 
 
-        for y in data_dict:
-            print(y)
         for i in data_dict:
             if "Metadata" not in i:
                 name = i.replace("/" , "_")
