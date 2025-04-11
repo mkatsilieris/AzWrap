@@ -177,7 +177,7 @@ class ProcessHandler:
         # Add regular steps
         print(f"📝 Total Steps: {len(self.json_data.get('steps', []))}")
         for step in self.json_data.get('steps', []):
-            step_content = step.get('step_content', '')
+            step_content = step.get('step_description', '')
             record = {
                 'id': self.generate_step_id(process_name, step['step_name'], step_content),
                 'process_id': process_id,
