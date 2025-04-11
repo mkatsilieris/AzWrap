@@ -292,7 +292,7 @@ def main():
             save_processed_file(file)
             print(f"✅ {file} processed successfully!")
 
-            exit()  # Exit after processing one file (debug mode)
+            # exit()  # Exit after processing one file (debug mode)
 
         except Exception as e:
             # Handle processing errors
