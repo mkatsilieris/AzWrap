@@ -51,17 +51,6 @@ CORE_INDEX_NAME = os.getenv("CORE_INDEX_NAME")
 DETAILED_INDEX_NAME = os.getenv("DETAILED_INDEX_NAME")
 ACCOUNT_NAME = os.getenv("ACCOUNT_NAME")
 
-print(SEARCH_SERVICE_NAME,
-TARGET_ACCOUNT_NAME,
-RESOURCE_GROUP ,
-TENANT_ID ,
-CLIENT_ID ,
-CLIENT_SECRET ,
-SUBSCRIPTION_ID,
-CORE_INDEX_NAME ,
-DETAILED_INDEX_NAME ,
-ACCOUNT_NAME)
-
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)

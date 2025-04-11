@@ -8,11 +8,23 @@ from docx.table import Table
 from tqdm import tqdm
 
 class DocParsing:
-    def __init__(self, doc_instance,client, json_file, domain, sub_domain , model_name , doc_name):
+    def __init__(self, doc_instance, client, json_file, domain, sub_domain, model_name, doc_name):
+        """
+        Initialize the DocParsing class with necessary parameters.
+        
+        Parameters:
+            doc_instance: Document object to be parsed
+            client: Azure OpenAI client for AI processing
+            json_file: Template for the JSON structure
+            domain: Domain category for the document
+            sub_domain: Sub-domain category for the document
+            model_name: Name of the AI model to use
+            doc_name: Name of the document being processed
+        """
         print("🚀 Initializing DocParsing class...")
-        self.client = client
-        self.doc = doc_instance  # Store the Document instance directly
-        self.doc_name = None  # Will be set later
+        self.client = client 
+        self.doc = doc_instance  
+        self.doc_name = None  
         self.format = json_file
         self.domain = domain
         self.model_name = model_name
@@ -21,6 +33,17 @@ class DocParsing:
 
         
     def get_section_header_lines(self, section):
+        """
+        Extract all text lines from a section's header.
+        
+        Collects text from paragraphs and tables in the header section.
+        
+        Parameters:
+            section: The document section to extract header text from
+            
+        Returns:
+            List of text lines from the header
+        """
         try:
             if not section or not section.header:
                 return []
@@ -46,6 +69,15 @@ class DocParsing:
     def parse_header_lines(self, header_lines):
         """
         Parse header lines to extract the process title.
+        
+        Analyzes header text to identify process numbers and titles,
+        filtering out metadata like edition info and page numbers.
+        
+        Parameters:
+            header_lines: List of text lines from a header
+            
+        Returns:
+            String containing the process title or "Metadata" if none found
         """
         # Skip empty lists
         if not header_lines:
@@ -83,6 +115,14 @@ class DocParsing:
     def extract_header_info(self, section):
         """
         Extract process title from section header.
+        
+        Combines header line extraction and parsing to get a process title.
+        
+        Parameters:
+            section: The document section to extract title from
+            
+        Returns:
+            String containing the process title or None if extraction fails
         """
         try:
             if not section or not section.header:
@@ -102,6 +142,17 @@ class DocParsing:
 
 
     def iterate_block_items_with_section(self, doc):
+        """
+        Iterate through document blocks (paragraphs and tables) with their section indices.
+        
+        Tracks section changes while iterating through elements.
+        
+        Parameters:
+            doc: The document to iterate through
+            
+        Yields:
+            Tuple of (section_index, block) where block is either a Paragraph or Table
+        """
         parent_elm = doc._element.body
         current_section_index = 0
 
@@ -118,6 +169,17 @@ class DocParsing:
                 yield current_section_index, table
 
     def extract_table_data(self, table):
+        """
+        Extract text data from a table.
+        
+        Converts table rows into strings with cells joined by ' - '.
+        
+        Parameters:
+            table: Table object to extract data from
+            
+        Returns:
+            String containing all table data with rows separated by newlines
+        """
         data = []
         for row in table.rows:
             row_cells = [cell.text.strip() for cell in row.cells if cell.text.strip()]
@@ -131,7 +193,15 @@ class DocParsing:
     def is_single_process(self, doc, doc_name):
         """
         Check if document is a single process document.
-        A document is single-process only if all sections have the same process title.
+        
+        Determines if all sections have the same process title or no process titles.
+        
+        Parameters:
+            doc: Document object to check
+            doc_name: Name of the document
+            
+        Returns:
+            Tuple of (is_single_process: bool, title: str or None)
         """
         print("🔎 Checking if single process document...")
         
@@ -158,8 +228,15 @@ class DocParsing:
             return False, None
     
     def extract_data(self):
- 
+        """
+        Extract content from the document based on section headers.
         
+        Processes document differently depending on whether it's a single
+        or multi-process document.
+        
+        Returns:
+            Dictionary with keys as formatted headers and values as section content
+        """
         doc_name = self.doc_name
         doc = self.doc
         data_dict = {}
@@ -208,6 +285,20 @@ class DocParsing:
         return data_dict
 
     def update_json(self, data_format, content, name):
+        """
+        Use AI to parse document content into structured JSON format.
+        
+        Sends document content to the AI model with specific prompts
+        to extract and organize information.
+        
+        Parameters:
+            data_format: JSON structure template
+            content: Document content to parse
+            name: Document name for context
+            
+        Returns:
+            JSON string containing the parsed content
+        """
         print("🤖 Updating JSON using AI...")
         prompt = (
             "Parse the provided information about a specific process from the document and fill in the JSON structure below. "
@@ -229,6 +320,16 @@ class DocParsing:
         return (output_llm.choices[0].message.content)
 
     def process_and_generate_json(self, response_str, output_file):
+        """
+        Process AI response and save it as a properly formatted JSON file.
+        
+        Cleans the AI response, adds domain and subdomain information,
+        and writes the result to a file.
+        
+        Parameters:
+            response_str: AI response string containing JSON data
+            output_file: Path to save the output JSON file
+        """
         print("💾 Processing and generating JSON file...")
         # Remove ```json from start and ``` from end if present
         cleaned_response = re.sub(r"^```json\s*|\s*```$", "", response_str.strip())
@@ -262,6 +363,19 @@ class DocParsing:
             print(f"❌ Unexpected error: {e}")
 
     def doc_to_json(self, doc_name=None, output_dir="temp_json"):
+        """
+        Main method to convert a document to JSON files.
+        
+        Extracts data from the document, processes each section,
+        and saves the results as JSON files.
+        
+        Parameters:
+            doc_name: Optional document name override
+            output_dir: Directory to save output JSON files
+            
+        Returns:
+            None
+        """
         print("🚢 Starting document to JSON conversion...")
         self.doc_name = self.doc_name
         data_dict = self.extract_data()
@@ -270,11 +384,10 @@ class DocParsing:
         if not os.path.exists(output_dir):
             os.makedirs(output_dir)
 
-
         for i in data_dict:
             if "Metadata" not in i:
                 name = i.replace("/" , "_")
-                path = f"{output_dir}/{name}.json"
+                path = f"{output_dir}/{name}"
                 print(path)
                 content = self.update_json(self.format, data_dict[i], self.doc_name)
                 self.process_and_generate_json(content, f"{path}.json")
@@ -282,6 +395,7 @@ class DocParsing:
         return
 
 # Example usage:
-# doc = Document("your_document.docx")
-# parser = DocParsing(doc_instance=doc, format_path="your_format.json", domain="your_domain", sub_domain="your_sub_domain")
+
+# doc = Document(r"C:\Users\agkithko\OneDrive - Netcompany\Desktop\ΚΑΤΑΝΑΛΩΤΙΚΑ_ΔΙΑΔΙΚΑΣΙΕΣ-20250408T073725Z-001\ΚΑΤΑΝΑΛΩΤΙΚΑ_ΔΙΑΔΙΚΑΣΙΕΣ\J66_001_2024-ΔΙΕΡΕΥΝΗΣΗ ΑΝΑΓΚΩΝ ΠΕΛΑΤΗ ΕΞΟΙΚΟΝΟΜΩ_WF.docx")
+# parser = DocParsing(doc_instance=doc, format_path=r"C:\Users\agkithko\OneDrive - Netcompany\Desktop\AzWrap-1\temp_json", domain="your_domain", sub_domain="your_sub_domain")
 # parser.doc_to_json(doc_name="optional_custom_name")

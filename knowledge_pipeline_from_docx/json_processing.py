@@ -6,6 +6,15 @@ class ProcessHandler:
     def __init__(self, json_path: str):
         """
         Initializes the class with the path to a JSON file.
+        
+        Loads and parses the JSON file containing process information.
+        Prints information about the loading process and the process name.
+        
+        Parameters:
+            json_path: String path to the JSON file to load
+            
+        Raises:
+            Exception: If the JSON file cannot be loaded or parsed
         """
         print(f"🗂️ Loading JSON file: {json_path}")
         try:
@@ -20,6 +29,16 @@ class ProcessHandler:
     def generate_process_id(self, process_name: str, short_description: str) -> int:
         """
         Generate a unique integer ID for the process based on its name and short description.
+        
+        Creates a SHA-256 hash of the combined process name and description,
+        then converts it to an integer ID.
+        
+        Parameters:
+            process_name: Name of the process
+            short_description: Brief description of the process
+            
+        Returns:
+            String representation of the process ID derived from the hash
         """
         print(f"🔢 Generating Process ID")
         print(f"   🏷️ Process Name: {process_name}")
@@ -38,6 +57,17 @@ class ProcessHandler:
     def generate_step_id(self, process_name: str, step_name: str, step_content: str) -> int:
         """
         Generate a unique integer ID for the step.
+        
+        Creates a SHA-256 hash of the combined process name, step name, and step content,
+        then converts it to an integer ID.
+        
+        Parameters:
+            process_name: Name of the parent process
+            step_name: Name of the step
+            step_content: Content/description of the step
+            
+        Returns:
+            String representation of the step ID derived from the hash
         """
         print(f"🔢 Generating Step ID")
         print(f"   🏷️ Process Name: {process_name}")
@@ -56,6 +86,15 @@ class ProcessHandler:
     def prepare_core_df_record(self, process_id: int) -> Dict:
         """
         Prepare record for core_df index.
+        
+        Creates a dictionary containing the main process information
+        and a non-LLM summary combining various process attributes.
+        
+        Parameters:
+            process_id: The unique ID for this process
+            
+        Returns:
+            Dictionary containing the core process information formatted for database storage
         """
         print("📊 Preparing Core DataFrame Record")
         
@@ -98,6 +137,15 @@ class ProcessHandler:
     def prepare_detailed_df_records(self, process_id: int) -> List[Dict]:
         """
         Prepare records for detailed_df index.
+        
+        Creates a list of dictionaries, each containing information about a step
+        in the process, including an introduction record (step 0) and all regular steps.
+        
+        Parameters:
+            process_id: The unique ID for the parent process
+            
+        Returns:
+            List of dictionaries containing detailed step information formatted for database storage
         """
         print("📑 Preparing Detailed DataFrame Records")
         detailed_records = []
@@ -148,6 +196,12 @@ class ProcessHandler:
     def prepare_for_upload(self) -> List[Dict]:
         """
         Prepare all records for upload from the JSON data.
+        
+        Coordinates the generation of process IDs and the preparation
+        of both core and detailed records for database upload.
+        
+        Returns:
+            Tuple containing the core record dictionary and a list of detailed record dictionaries
         """
         print("🚀 Preparing records for upload")
         
@@ -166,9 +220,24 @@ class ProcessHandler:
 
 # Example usage function with enhanced logging
 def process_json_for_upload(json_path: str) -> List[Dict]:
+    '''
+    Process a JSON file containing process data and prepare it for database upload.
+    
+    Creates a ProcessHandler instance to handle the JSON file,
+    then prepares both core and detailed records for upload.
+    
+    Parameters:
+        json_path: String path to the JSON file to process
+        
+    Returns:
+        Tuple containing the core record dictionary and a list of detailed record dictionaries
+        
+    Raises:
+        Exception: If there's an error processing the JSON file
+    '''
     print(f"🔍 Processing JSON file: {json_path}")
     try:
-        document_processor = ProcessDocument(json_path)
+        document_processor = ProcessHandler(json_path)
         core, detail = document_processor.prepare_for_upload()
         
         print("\n📊 Core Record Summary:")
@@ -185,11 +254,11 @@ def process_json_for_upload(json_path: str) -> List[Dict]:
         raise
 
 # Example usage with a path to the JSON file:
-# if __name__ == "__main__":
-#     json_file_path = r"C:\Users\agkithko\OneDrive - Netcompany\Desktop\nbg_wrap\AzWrap\temp_json\actual_json"
-#     core, detail = process_json_for_upload(json_file_path)
+if __name__ == "__main__":
+    json_file_path = r"C:\Users\agkithko\OneDrive - Netcompany\Desktop\AzWrap-1\temp_json\J514_001_2023-ΕΚΤΑΜΙΕΥΣΗ ΚΑΤΑΝΑΛΩΤΙΚΟΥ ΔΑΝΕΙΟΥ_WF_single_process.json"
+    core, detail = process_json_for_upload(json_file_path)
 
-#     for i in core:
-#         print(i , core[i])
-#     for y in detail:
-#         print(y)
+    for i in core:
+        print(i , core[i])
+    for y in detail:
+        print(y)
