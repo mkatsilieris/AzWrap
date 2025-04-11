@@ -35,11 +35,12 @@ MODEL_NAME=gpt-35-turbo  # or your deployed OpenAI model name
 
 ## 📁 2. Local Paths (used by `main.py`)
 
+A `temp_json` path is declared for the temporary storage of `.json` files and one `format.json` file is used to define the format for the JSON data to be added to the index.
 These are currently hardcoded in the script. Make sure the paths exist or modify the script if you need to change them:
 
 ```python
-TEMP_PATH = r"C:\Users\agkithko\OneDrive - Netcompany\Desktop\AzWrap-1\temp_json"
-FORMAT_JSON_PATH = r"C:\Users\agkithko\OneDrive - Netcompany\Desktop\AzWrap-1\knowledge_pipeline_from_docx\format.json"
+TEMP_PATH = r"<YOUR_PATH>\temp_json"
+FORMAT_JSON_PATH = r"<YOUR_PATH>\knowledge_pipeline_from_docx\format.json"
 ```
 
 ---
