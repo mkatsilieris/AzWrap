@@ -1,6 +1,7 @@
 dist/**
 .venv/**
 .env
+.idea
 
 **/__pycache__/**
 AzWrap.egg-info/**

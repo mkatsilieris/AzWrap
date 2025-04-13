@@ -443,3 +443,115 @@ CLI_CONFIG = {
         {"name": "config", "help": "Path to configuration file"}
     ]
 }
+
+# Extended CLI configuration with additional commands for the enhanced functionality
+EXTENDED_CLI_CONFIG = {
+    "name": "azwrap",
+    "description": "Extended Azure Wrapper (AzWrap) CLI tool with additional functionality",
+    "commands": {
+        # Knowledge Pipeline Commands
+        "knowledge-pipeline": {
+            "description": "Manage document processing and knowledge extraction pipelines",
+            "subcommands": {
+                "run": {
+                    "description": "Run the knowledge pipeline to process documents",
+                    "options": [
+                        {"name": "source-path", "short": "p", "required": True, "help": "Path to source document or directory"},
+                        {"name": "temp-path", "short": "t", "required": False, "help": "Path for temporary files"},
+                        {"name": "format-json", "short": "f", "required": False, "help": "Path to format.json file"}
+                    ]
+                },
+                "create-index": {
+                    "description": "Create or update search indexes for the knowledge pipeline",
+                    "options": [
+                        {"name": "search-service", "short": "s", "required": True, "help": "Search service name"},
+                        {"name": "resource-group", "short": "g", "required": True, "help": "Resource group name"},
+                        {"name": "core-index", "required": False, "help": "Name for the core index", "default": "knowledge-core"},
+                        {"name": "detailed-index", "required": False, "help": "Name for the detailed index", "default": "knowledge-detailed"}
+                    ]
+                },
+                "status": {
+                    "description": "Get status of the knowledge pipeline processing",
+                    "options": []
+                }
+            }
+        },
+        
+        # Vector Search Commands
+        "vector-search": {
+            "description": "Manage and perform vector searches",
+            "subcommands": {
+                "create-config": {
+                    "description": "Create a vector search configuration for an index",
+                    "options": [
+                        {"name": "search-service", "short": "s", "required": True, "help": "Search service name"},
+                        {"name": "resource-group", "short": "g", "required": True, "help": "Resource group name"},
+                        {"name": "index-name", "short": "i", "required": True, "help": "Index name"},
+                        {"name": "metric", "short": "m", "required": False, "help": "Distance metric (cosine, euclidean, dotProduct)", "default": "cosine"},
+                        {"name": "connections", "short": "c", "required": False, "help": "Number of connections per node", "default": "4"},
+                        {"name": "neighbors", "short": "n", "required": False, "help": "Size of neighbors list", "default": "400"},
+                        {"name": "search-size", "required": False, "help": "Size of search list", "default": "500"}
+                    ]
+                },
+                "hybrid-search": {
+                    "description": "Perform a hybrid search combining keyword and vector searching",
+                    "options": [
+                        {"name": "search-service", "short": "s", "required": True, "help": "Search service name"},
+                        {"name": "resource-group", "short": "g", "required": True, "help": "Resource group name"},
+                        {"name": "index-name", "short": "i", "required": True, "help": "Index name"},
+                        {"name": "query", "short": "q", "required": True, "help": "Search query text"},
+                        {"name": "vector-field", "short": "v", "required": False, "help": "Vector field name", "default": "text_vector"},
+                        {"name": "semantic", "is_flag": True, "help": "Enable semantic search"},
+                        {"name": "top", "short": "t", "required": False, "help": "Number of results to return", "default": "10"}
+                    ]
+                }
+            }
+        },
+        
+        # Deployment Commands
+        "deployment": {
+            "description": "Manage deployments for Azure OpenAI and AI Search services",
+            "subcommands": {
+                "get": {
+                    "description": "Get details of a specific deployment",
+                    "options": [
+                        {"name": "name", "short": "n", "required": True, "help": "Deployment name"},
+                        {"name": "service", "required": True, "help": "OpenAI service name"},
+                        {"name": "resource-group", "short": "g", "required": True, "help": "Resource group name"}
+                    ]
+                },
+                "create": {
+                    "description": "Creates a new deployment",
+                    "options": [
+                        {"name": "name", "short": "n", "required": True, "help": "Deployment name"},
+                        {"name": "model", "short": "m", "required": True, "help": "Model name"},
+                        {"name": "service", "required": True, "help": "OpenAI service name"},
+                        {"name": "resource-group", "short": "g", "required": True, "help": "Resource group name"},
+                        {"name": "capacity", "short": "c", "help": "Capacity in TPM", "default": "1"},
+                        {"name": "sku", "help": "SKU name", "default": "Standard"},
+                        {"name": "version", "short": "v", "help": "Model version"}
+                    ]
+                },
+                "update": {
+                    "description": "Updates an existing deployment",
+                    "options": [
+                        {"name": "name", "short": "n", "required": True, "help": "Deployment name"},
+                        {"name": "service", "required": True, "help": "OpenAI service name"},
+                        {"name": "resource-group", "short": "g", "required": True, "help": "Resource group name"},
+                        {"name": "capacity", "short": "c", "help": "New capacity in TPM"},
+                        {"name": "sku", "help": "New SKU name"}
+                    ]
+                },
+                "delete": {
+                    "description": "Deletes a deployment",
+                    "options": [
+                        {"name": "name", "short": "n", "required": True, "help": "Deployment name"},
+                        {"name": "service", "required": True, "help": "OpenAI service name"},
+                        {"name": "resource-group", "short": "g", "required": True, "help": "Resource group name"},
+                        {"name": "force", "is_flag": True, "help": "Force deletion without confirmation"}
+                    ]
+                }
+            }
+        }
+    }
+}
