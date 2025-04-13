@@ -450,29 +450,24 @@ EXTENDED_CLI_CONFIG = {
     "description": "Extended Azure Wrapper (AzWrap) CLI tool with additional functionality",
     "commands": {
         # Knowledge Pipeline Commands
-        "knowledge-pipeline": {
+        "pipeline": {
             "description": "Manage document processing and knowledge extraction pipelines",
             "subcommands": {
                 "run": {
-                    "description": "Run the knowledge pipeline to process documents",
+                    "description": "Run the knowledge pipeline to process documents from Azure Blob Storage",
                     "options": [
-                        {"name": "source-path", "short": "p", "required": True, "help": "Path to source document or directory"},
-                        {"name": "temp-path", "short": "t", "required": False, "help": "Path for temporary files"},
-                        {"name": "format-json", "short": "f", "required": False, "help": "Path to format.json file"}
+                        {"name": "manage-indexes", "is_flag": True, "help": "Run index management tasks before processing files"},
+                        {"name": "recreate-indexes", "is_flag": True, "help": "Delete existing indexes before creating new ones (use with caution)"},
+                        {"name": "config", "short": "c", "required": False, "help": "Path to configuration file (defaults to .env)"}
                     ]
                 },
-                "create-index": {
+                "create-indexes": {
                     "description": "Create or update search indexes for the knowledge pipeline",
                     "options": [
-                        {"name": "search-service", "short": "s", "required": True, "help": "Search service name"},
-                        {"name": "resource-group", "short": "g", "required": True, "help": "Resource group name"},
                         {"name": "core-index", "required": False, "help": "Name for the core index", "default": "knowledge-core"},
-                        {"name": "detailed-index", "required": False, "help": "Name for the detailed index", "default": "knowledge-detailed"}
+                        {"name": "detailed-index", "required": False, "help": "Name for the detailed index", "default": "knowledge-detailed"},
+                        {"name": "recreate", "is_flag": True, "help": "Delete existing indexes before creating new ones"}
                     ]
-                },
-                "status": {
-                    "description": "Get status of the knowledge pipeline processing",
-                    "options": []
                 }
             }
         },

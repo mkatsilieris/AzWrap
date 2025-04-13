@@ -1,6 +1,0 @@
-python-dotenv
-python-docx
-openai
-azure-core
-azure-search-documents
-tqdm

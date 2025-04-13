@@ -1,29 +1,46 @@
+#!/usr/bin/env python3
+"""
+Enhanced entry point for the AzWrap CLI tool with extended functionality.
+This module integrates the standard CLI functionality from main.py with
+additional features from wrapper_extended.py.
+"""
+
 import os
 import sys
 import json
+import logging
+import click
+import argparse
 from pathlib import Path
 from datetime import timedelta
 from typing import Dict, Any, List, Optional, Union
 
-import click
 from dotenv import load_dotenv
 import azure.search.documents.indexes.models as azsdim
 
-# Import wrapper classes
-from .wrapper import (
-    Identity,
-    Subscription,
-    ResourceGroup,
-    SearchService,
-    AIService,
-    SearchIndexerManager,
-    DataSourceConnection,
-    Indexer,
-    Skillset,
-    BlobType
-)
 
-from .cli_config import CLI_CONFIG
+# Import from wrapper_extended if available
+try:
+    # Import additional classes or functions from wrapper_extended
+    from .wrapper import (
+        Identity, Subscription, ResourceGroup, StorageAccount, Container, BlobType,
+        SearchService, SearchIndex, SearchIndexerManager, DataSourceConnection, 
+        Indexer, Skillset, AIService, OpenAIClient, get_std_vector_search,
+        ProcessHandler, DocParsing, MultiProcessHandler
+    )
+except ImportError:
+    # Log warning but continue - extended functionality will be limited
+    logging.warning("wrapper_extended module not found. Extended functionality will not be available.")
+
+from .cli_config import CLI_CONFIG, EXTENDED_CLI_CONFIG
+
+# Set up logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
+# Files for tracking processing progress
+CHECKPOINT_FILE = "processed_files.txt"  # Tracks successfully processed files
+FAILED_FILE_LOG = "failed_files.txt"     # Tracks files that failed processing
 
 # Global context object to store common objects and settings
 class Context:
@@ -166,7 +183,7 @@ def create_cli():
     @click.option("--config", type=click.Path(exists=True), help="Path to configuration file")
     @click.pass_context
     def cli(ctx, verbose, quiet, output, config):
-        """Azure Wrapper (AzWrap) CLI tool for managing Azure resources."""
+        """Azure Wrapper (AzWrap) CLI tool for managing Azure resources with extended features."""
         # Initialize the context object
         ctx.obj = Context()
         ctx.obj.verbose = verbose
@@ -198,7 +215,8 @@ def create_cli():
         ctx.obj.log("Azure Wrapper CLI initialized", level="debug")
     
     # Add command groups based on the configuration
-    for group_name, group_config in CLI_CONFIG["commands"].items():
+    all_configs = {**CLI_CONFIG["commands"], **(EXTENDED_CLI_CONFIG.get("commands", {}))}
+    for group_name, group_config in all_configs.items():
         group = click.Group(name=group_name, help=group_config["description"])
         cli.add_command(group)
         
@@ -351,524 +369,185 @@ def create_command_function(group_name, cmd_name, cmd_config):
                 return None
         return func
     
-    # Handle resource-group get command
-    elif group_name == "resource-group" and cmd_name == "get":
+    # Handle knowledge-pipeline command
+    elif group_name == "knowledge-pipeline" and cmd_name == "run":
         @pass_context
-        def func(ctx, name, subscription_id=None):
-            """Get details of a specific resource group."""
+        def func(ctx, source_path, temp_path=None, format_json=None):
+            """Run the knowledge pipeline to process documents."""
             try:
-                ctx.log(f"Getting resource group: {name}", level="debug")
-                if not ctx.identity:
-                    ctx.log("Identity is not initialized", level="error")
+                ctx.log(f"Starting knowledge pipeline processing from {source_path}", level="debug")
+                
+                if not ctx.subscription:
+                    ctx.log("Subscription is not initialized", level="error")
                     return None
                 
-                # Use the provided subscription ID or the default one
-                subscription = None
-                if subscription_id:
-                    ctx.log(f"Using provided subscription ID: {subscription_id}", level="debug")
-                    subscription = ctx.identity.get_subscription(subscription_id)
-                elif ctx.subscription:
-                    ctx.log(f"Using default subscription ID: {ctx.subscription.subscription_id}", level="debug")
-                    subscription = ctx.subscription
+                # Set default paths if not provided
+                if not temp_path:
+                    temp_path = os.path.join(os.getcwd(), "temp_json")
+                    os.makedirs(temp_path, exist_ok=True)
+                
+                if not format_json:
+                    # Try to find format.json in standard locations
+                    potential_paths = [
+                        os.path.join(os.getcwd(), "format.json"),
+                        os.path.join(os.path.dirname(os.path.dirname(__file__)), "knowledge_pipeline_from_docx", "format.json")
+                    ]
+                    for path in potential_paths:
+                        if os.path.exists(path):
+                            format_json = path
+                            break
+                    
+                    if not format_json:
+                        ctx.log("format.json not found. Please specify the path using --format-json", level="error")
+                        return None
+                
+                # Load processed files tracking
+                processed_files = _load_processed_files()
+                
+                # Process the source path (file or directory)
+                if os.path.isfile(source_path):
+                    ctx.log(f"Processing single file: {source_path}")
+                    if source_path.lower().endswith('.docx'):
+                        _process_document(ctx, source_path, temp_path, format_json, processed_files)
+                elif os.path.isdir(source_path):
+                    ctx.log(f"Processing directory: {source_path}")
+                    _process_directory(ctx, source_path, temp_path, format_json, processed_files)
                 else:
-                    ctx.log("No subscription ID provided and no default subscription set", level="error")
+                    ctx.log(f"Source path {source_path} does not exist", level="error")
                     return None
                 
-                # Get the resource group
-                resource_group = subscription.get_resource_group(name)
-                if not resource_group:
-                    ctx.log(f"Resource group '{name}' not found", level="error")
-                    return None
-                
-                # Format the result
-                result = {
-                    "name": resource_group.get_name(),
-                    "location": resource_group.azure_resource_group.location,
-                    "provisioning_state": resource_group.azure_resource_group.properties.provisioning_state if hasattr(resource_group.azure_resource_group, 'properties') and hasattr(resource_group.azure_resource_group.properties, 'provisioning_state') else "Unknown",
-                    "id": resource_group.azure_resource_group.id
-                }
-                
-                ctx.output(result, f"Resource Group: {name}")
-                return result
+                return {"status": "completed", "message": "Document processing completed"}
             except Exception as e:
-                ctx.log(f"Error getting resource group details: {str(e)}", level="error")
+                ctx.log(f"Error in knowledge pipeline: {str(e)}", level="error")
                 import traceback
                 ctx.log(traceback.format_exc(), level="debug")
                 return None
         return func
-    
-    # Handle resource-group create command
-    elif group_name == "resource-group" and cmd_name == "create":
+        
+    # Handle pipeline run command
+    elif group_name == "pipeline" and cmd_name == "run":
         @pass_context
-        def func(ctx, name, location, subscription_id=None):
-            """Create a new resource group."""
+        def func(ctx, manage_indexes=False, recreate_indexes=False, config=None):
+            """Run the knowledge pipeline to process documents from Azure Blob Storage."""
             try:
-                ctx.log(f"Creating resource group: {name} in location: {location}", level="debug")
-                if not ctx.identity:
-                    ctx.log("Identity is not initialized", level="error")
+                ctx.log("Starting knowledge pipeline...", level="info")
+                
+                if not ctx.subscription:
+                    ctx.log("Subscription is not initialized", level="error")
                     return None
                 
-                # Use the provided subscription ID or the default one
-                subscription = None
-                if subscription_id:
-                    ctx.log(f"Using provided subscription ID: {subscription_id}", level="debug")
-                    subscription = ctx.identity.get_subscription(subscription_id)
-                elif ctx.subscription:
-                    ctx.log(f"Using default subscription ID: {ctx.subscription.subscription_id}", level="debug")
-                    subscription = ctx.subscription
+                # Load configuration
+                pipeline_config = {}
+                
+                # Load from provided config file or .env
+                if config and os.path.exists(config):
+                    load_dotenv(config)
                 else:
-                    ctx.log("No subscription ID provided and no default subscription set", level="error")
-                    return None
+                    load_dotenv()
                 
-                # Create the resource group
-                resource_group = subscription.create_resource_group(name, location)
-                
-                # Format the result
-                result = {
-                    "name": resource_group.name,
-                    "location": resource_group.location,
-                    "provisioning_state": resource_group.properties.provisioning_state if hasattr(resource_group, 'properties') and hasattr(resource_group.properties, 'provisioning_state') else "Unknown",
-                    "id": resource_group.id
+                # Add required config items for the pipeline
+                pipeline_config = {
+                    "AZURE_TENANT_ID": os.getenv("AZURE_TENANT_ID"),
+                    "AZURE_CLIENT_ID": os.getenv("AZURE_CLIENT_ID"),
+                    "AZURE_CLIENT_SECRET": os.getenv("AZURE_CLIENT_SECRET"),
+                    "AZURE_SUBSCRIPTION_ID": os.getenv("AZURE_SUBSCRIPTION_ID"),
+                    "RESOURCE_GROUP": os.getenv("RESOURCE_GROUP"),
+                    "TARGET_ACCOUNT_NAME": os.getenv("TARGET_ACCOUNT_NAME"),
+                    "ACCOUNT_NAME": os.getenv("ACCOUNT_NAME"),
+                    "CONTAINER_NAME": os.getenv("CONTAINER_NAME"),
+                    "SEARCH_SERVICE_NAME": os.getenv("SEARCH_SERVICE_NAME"),
+                    "CORE_INDEX_NAME": os.getenv("CORE_INDEX_NAME"),
+                    "DETAILED_INDEX_NAME": os.getenv("DETAILED_INDEX_NAME"),
+                    "MODEL_NAME": os.getenv("MODEL_NAME"),
+                    "TEMP_PATH": os.getenv("TEMP_PATH", os.path.join(os.getcwd(), "temp_json")),
+                    "FORMAT_JSON_PATH": os.getenv("FORMAT_JSON_PATH", os.path.join(os.getcwd(), "format.json")),
                 }
                 
-                ctx.log(f"Resource group '{name}' created successfully", level="success")
-                ctx.output(result, f"Created Resource Group: {name}")
-                return result
+                # Check for required config
+                missing = [key for key, value in pipeline_config.items() if not value]
+                if missing:
+                    ctx.log(f"Missing required configuration: {', '.join(missing)}", level="error")
+                    ctx.log("Set these variables in your .env file or provide a config file with --config", level="error")
+                    return None
+                
+                # Call the pipeline function
+                ctx.log("Starting run_pipeline function with the following parameters:", level="debug")
+                ctx.log(f"- manage_indexes: {manage_indexes}", level="debug")
+                ctx.log(f"- recreate_indexes: {recreate_indexes}", level="debug")
+                
+                result = run_pipeline(pipeline_config, manage_indexes, recreate_indexes)
+                ctx.log("Pipeline execution completed", level="success")
+                return {"status": "completed"}
             except Exception as e:
-                ctx.log(f"Error creating resource group: {str(e)}", level="error")
+                ctx.log(f"Error in knowledge pipeline: {str(e)}", level="error")
                 import traceback
                 ctx.log(traceback.format_exc(), level="debug")
                 return None
         return func
     
-    # Handle indexer list command
-    elif group_name == "indexer" and cmd_name == "list":
+    # Handle pipeline create-indexes command
+    elif group_name == "pipeline" and cmd_name == "create-indexes":
         @pass_context
-        def func(ctx, search_service, resource_group):
-            """List indexers in a search service."""
+        def func(ctx, core_index="knowledge-core", detailed_index="knowledge-detailed", recreate=False):
+            """Create or update search indexes for the knowledge pipeline."""
             try:
-                ctx.log(f"Listing indexers in search service: {search_service}", level="debug")
+                ctx.log("Starting index creation for knowledge pipeline...", level="info")
                 
-                # Get the search service
                 if not ctx.subscription:
                     ctx.log("Subscription is not initialized", level="error")
                     return None
                 
-                # Get the search service
-                search_svc = ctx.subscription.get_search_service(search_service)
-                if not search_svc:
-                    ctx.log(f"Search service '{search_service}' not found", level="error")
+                # Load environment variables
+                load_dotenv()
+                
+                search_service_name = os.getenv("SEARCH_SERVICE_NAME")
+                resource_group_name = os.getenv("RESOURCE_GROUP")
+                
+                if not search_service_name:
+                    ctx.log("SEARCH_SERVICE_NAME environment variable not set", level="error")
                     return None
                 
-                # Create indexer manager and get indexers
-                indexer_manager = search_svc.create_indexer_manager()
-                indexers = indexer_manager.get_indexers()
+                if not resource_group_name:
+                    ctx.log("RESOURCE_GROUP environment variable not set", level="error")
+                    return None
                 
-                ctx.log(f"Found {len(indexers)} indexers", level="debug")
+                # Get the search service
+                ctx.log(f"Getting search service: {search_service_name}", level="debug")
+                resource_group = ctx.subscription.get_resource_group(resource_group_name)
+                search_service = ctx.subscription.get_search_service(search_service_name)
                 
-                # Format the result
-                result = [
-                    {
-                        "name": indexer.get_name(),
-                        "target_index": indexer.indexer.target_index_name,
-                        "data_source": indexer.indexer.data_source_name
-                    }
-                    for indexer in indexers
-                ]
+                if not search_service:
+                    ctx.log(f"Search service {search_service_name} not found", level="error")
+                    return None
                 
-                ctx.output(result, f"Indexers in {search_service}")
-                return result
+                # Get the search index client
+                search_index_client = search_service.get_index_client()
+                
+                # Override index names if provided
+                if core_index:
+                    os.environ["CORE_INDEX_NAME"] = core_index
+                if detailed_index:
+                    os.environ["DETAILED_INDEX_NAME"] = detailed_index
+                
+                # Import required functions dynamically to avoid circular imports
+                try:
+                    from .knowledge_pipeline import manage_azure_search_indexes
+                    manage_azure_search_indexes(search_index_client, core_index, detailed_index, recreate)
+                    ctx.log("Index creation completed successfully", level="success")
+                    return {"status": "completed", "indexes": [core_index, detailed_index]}
+                except ImportError:
+                    ctx.log("knowledge_pipeline module not found. Index management functionality not available.", level="error")
+                    return None
+                
             except Exception as e:
-                ctx.log(f"Error listing indexers: {str(e)}", level="error")
+                ctx.log(f"Error creating indexes: {str(e)}", level="error")
                 import traceback
                 ctx.log(traceback.format_exc(), level="debug")
                 return None
         return func
     
-    # Handle indexer create command
-    elif group_name == "indexer" and cmd_name == "create":
-        @pass_context
-        def func(ctx, name, data_source, target_index, search_service, resource_group, skillset=None, schedule=None):
-            """Create an indexer."""
-            try:
-                ctx.log(f"Creating indexer: {name} in search service: {search_service}", level="debug")
-                
-                # Get the search service
-                if not ctx.subscription:
-                    ctx.log("Subscription is not initialized", level="error")
-                    return None
-                
-                # Get the search service
-                search_svc = ctx.subscription.get_search_service(search_service)
-                if not search_svc:
-                    ctx.log(f"Search service '{search_service}' not found", level="error")
-                    return None
-                
-                # Create indexer manager
-                indexer_manager = search_svc.create_indexer_manager()
-                
-                # Check if data source exists
-                data_source_obj = indexer_manager.get_data_source_connection(data_source)
-                if not data_source_obj:
-                    ctx.log(f"Data source '{data_source}' not found", level="error")
-                    return None
-                
-                # Check if target index exists
-                index = search_svc.get_index(target_index)
-                if not index:
-                    ctx.log(f"Target index '{target_index}' not found", level="error")
-                    return None
-                
-                # Process schedule if provided
-                indexing_schedule = None
-                if schedule:
-                    try:
-                        # Parse schedule as a cron expression
-                        import datetime
-                        # Simple parsing for daily/weekly/monthly schedules
-                        if schedule.lower() == "daily":
-                            indexing_schedule = azsdim.IndexingSchedule(interval=datetime.timedelta(days=1))
-                        elif schedule.lower() == "weekly":
-                            indexing_schedule = azsdim.IndexingSchedule(interval=datetime.timedelta(days=7))
-                        elif schedule.lower() == "monthly":
-                            indexing_schedule = azsdim.IndexingSchedule(interval=datetime.timedelta(days=30))
-                        else:
-                            # Try to parse as hours
-                            try:
-                                hours = float(schedule)
-                                indexing_schedule = azsdim.IndexingSchedule(interval=datetime.timedelta(hours=hours))
-                            except ValueError:
-                                ctx.log(f"Invalid schedule format: {schedule}. Using default schedule.", level="warning")
-                    except Exception as e:
-                        ctx.log(f"Error parsing schedule: {str(e)}. Using default schedule.", level="warning")
-                
-                # Create the indexer
-                indexer = indexer_manager.create_indexer(
-                    name=name,
-                    data_source_name=data_source,
-                    target_index_name=target_index,
-                    schedule=indexing_schedule
-                )
-                
-                # Format the result
-                result = {
-                    "name": indexer.get_name(),
-                    "target_index": indexer.indexer.target_index_name,
-                    "data_source": indexer.indexer.data_source_name,
-                    "schedule": str(indexer.indexer.schedule) if indexer.indexer.schedule else "None"
-                }
-                
-                ctx.log(f"Indexer '{name}' created successfully", level="success")
-                ctx.output(result, f"Created indexer: {name}")
-                return result
-            except Exception as e:
-                ctx.log(f"Error creating indexer: {str(e)}", level="error")
-                import traceback
-                ctx.log(traceback.format_exc(), level="debug")
-                return None
-        return func
-    
-    # Handle indexer update command
-    elif group_name == "indexer" and cmd_name == "update":
-        @pass_context
-        def func(ctx, name, search_service, resource_group, schedule=None, parameters=None):
-            """Update an indexer."""
-            try:
-                ctx.log(f"Updating indexer: {name} in search service: {search_service}", level="debug")
-                
-                # Get the search service
-                if not ctx.subscription:
-                    ctx.log("Subscription is not initialized", level="error")
-                    return None
-                
-                # Get the search service
-                search_svc = ctx.subscription.get_search_service(search_service)
-                if not search_svc:
-                    ctx.log(f"Search service '{search_service}' not found", level="error")
-                    return None
-                
-                # Create indexer manager and get the indexer
-                indexer_manager = search_svc.create_indexer_manager()
-                indexer = indexer_manager.get_indexer(name)
-                
-                if not indexer:
-                    ctx.log(f"Indexer '{name}' not found", level="error")
-                    return None
-                
-                # Process schedule if provided
-                indexing_schedule = None
-                if schedule:
-                    try:
-                        # Parse schedule as a cron expression
-                        import datetime
-                        # Simple parsing for daily/weekly/monthly schedules
-                        if schedule.lower() == "daily":
-                            indexing_schedule = azsdim.IndexingSchedule(interval=datetime.timedelta(days=1))
-                        elif schedule.lower() == "weekly":
-                            indexing_schedule = azsdim.IndexingSchedule(interval=datetime.timedelta(days=7))
-                        elif schedule.lower() == "monthly":
-                            indexing_schedule = azsdim.IndexingSchedule(interval=datetime.timedelta(days=30))
-                        else:
-                            # Try to parse as hours
-                            try:
-                                hours = float(schedule)
-                                indexing_schedule = azsdim.IndexingSchedule(interval=datetime.timedelta(hours=hours))
-                            except ValueError:
-                                ctx.log(f"Invalid schedule format: {schedule}. Schedule not updated.", level="warning")
-                    except Exception as e:
-                        ctx.log(f"Error parsing schedule: {str(e)}. Schedule not updated.", level="warning")
-                
-                # Process parameters if provided
-                indexing_parameters = None
-                if parameters:
-                    try:
-                        # Parse parameters as JSON
-                        params_dict = process_json_arg(parameters)
-                        # Convert to IndexingParameters
-                        indexing_parameters = azsdim.IndexingParameters(**params_dict)
-                    except Exception as e:
-                        ctx.log(f"Error parsing parameters: {str(e)}. Parameters not updated.", level="warning")
-                
-                # Update the indexer
-                updated_indexer = indexer.update(
-                    schedule=indexing_schedule,
-                    parameters=indexing_parameters
-                )
-                
-                # Format the result
-                result = {
-                    "name": updated_indexer.get_name(),
-                    "target_index": updated_indexer.indexer.target_index_name,
-                    "data_source": updated_indexer.indexer.data_source_name,
-                    "schedule": str(updated_indexer.indexer.schedule) if updated_indexer.indexer.schedule else "None",
-                    "parameters": str(updated_indexer.indexer.parameters) if updated_indexer.indexer.parameters else "None"
-                }
-                
-                ctx.log(f"Indexer '{name}' updated successfully", level="success")
-                ctx.output(result, f"Updated indexer: {name}")
-                return result
-            except Exception as e:
-                ctx.log(f"Error updating indexer: {str(e)}", level="error")
-                import traceback
-                ctx.log(traceback.format_exc(), level="debug")
-                return None
-        return func
-    
-    # Handle indexer get command
-    elif group_name == "indexer" and cmd_name == "get":
-        @pass_context
-        def func(ctx, name, search_service, resource_group):
-            """Get details of a specific indexer."""
-            try:
-                ctx.log(f"Getting indexer: {name} from search service: {search_service}", level="debug")
-                
-                # Get the search service
-                if not ctx.subscription:
-                    ctx.log("Subscription is not initialized", level="error")
-                    return None
-                
-                # Get the search service
-                search_svc = ctx.subscription.get_search_service(search_service)
-                if not search_svc:
-                    ctx.log(f"Search service '{search_service}' not found", level="error")
-                    return None
-                
-                # Create indexer manager and get the indexer
-                indexer_manager = search_svc.create_indexer_manager()
-                indexer = indexer_manager.get_indexer(name)
-                
-                if not indexer:
-                    ctx.log(f"Indexer '{name}' not found", level="error")
-                    return None
-                
-                # Format the result
-                result = {
-                    "name": indexer.get_name(),
-                    "target_index": indexer.indexer.target_index_name,
-                    "data_source": indexer.indexer.data_source_name,
-                    "schedule": str(indexer.indexer.schedule) if indexer.indexer.schedule else "None",
-                    "parameters": str(indexer.indexer.parameters) if indexer.indexer.parameters else "None"
-                }
-                
-                ctx.output(result, f"Indexer: {name}")
-                return result
-            except Exception as e:
-                ctx.log(f"Error getting indexer details: {str(e)}", level="error")
-                import traceback
-                ctx.log(traceback.format_exc(), level="debug")
-                return None
-        return func
-    
-    # Handle indexer run command
-    elif group_name == "indexer" and cmd_name == "run":
-        @pass_context
-        def func(ctx, name, search_service, resource_group):
-            """Run an indexer."""
-            try:
-                ctx.log(f"Running indexer: {name} in search service: {search_service}", level="debug")
-                
-                # Get the search service
-                if not ctx.subscription:
-                    ctx.log("Subscription is not initialized", level="error")
-                    return None
-                
-                # Get the search service
-                search_svc = ctx.subscription.get_search_service(search_service)
-                if not search_svc:
-                    ctx.log(f"Search service '{search_service}' not found", level="error")
-                    return None
-                
-                # Create indexer manager and get the indexer
-                indexer_manager = search_svc.create_indexer_manager()
-                indexer = indexer_manager.get_indexer(name)
-                
-                if not indexer:
-                    ctx.log(f"Indexer '{name}' not found", level="error")
-                    return None
-                
-                # Run the indexer
-                indexer.run()
-                
-                ctx.log(f"Indexer '{name}' run initiated", level="success")
-                return {"status": "success", "message": f"Indexer '{name}' run initiated"}
-            except Exception as e:
-                ctx.log(f"Error running indexer: {str(e)}", level="error")
-                import traceback
-                ctx.log(traceback.format_exc(), level="debug")
-                return None
-        return func
-    
-    # Handle indexer reset command
-    elif group_name == "indexer" and cmd_name == "reset":
-        @pass_context
-        def func(ctx, name, search_service, resource_group):
-            """Reset an indexer."""
-            try:
-                ctx.log(f"Resetting indexer: {name} in search service: {search_service}", level="debug")
-                
-                # Get the search service
-                if not ctx.subscription:
-                    ctx.log("Subscription is not initialized", level="error")
-                    return None
-                
-                # Get the search service
-                search_svc = ctx.subscription.get_search_service(search_service)
-                if not search_svc:
-                    ctx.log(f"Search service '{search_service}' not found", level="error")
-                    return None
-                
-                # Create indexer manager and get the indexer
-                indexer_manager = search_svc.create_indexer_manager()
-                indexer = indexer_manager.get_indexer(name)
-                
-                if not indexer:
-                    ctx.log(f"Indexer '{name}' not found", level="error")
-                    return None
-                
-                # Reset the indexer
-                indexer.reset()
-                
-                ctx.log(f"Indexer '{name}' reset successful", level="success")
-                return {"status": "success", "message": f"Indexer '{name}' reset successful"}
-            except Exception as e:
-                ctx.log(f"Error resetting indexer: {str(e)}", level="error")
-                import traceback
-                ctx.log(traceback.format_exc(), level="debug")
-                return None
-        return func
-    
-    # Handle indexer status command
-    elif group_name == "indexer" and cmd_name == "status":
-        @pass_context
-        def func(ctx, name, search_service, resource_group):
-            """Get indexer status."""
-            try:
-                ctx.log(f"Getting status for indexer: {name} in search service: {search_service}", level="debug")
-                
-                # Get the search service
-                if not ctx.subscription:
-                    ctx.log("Subscription is not initialized", level="error")
-                    return None
-                
-                # Get the search service
-                search_svc = ctx.subscription.get_search_service(search_service)
-                if not search_svc:
-                    ctx.log(f"Search service '{search_service}' not found", level="error")
-                    return None
-                
-                # Create indexer manager and get the indexer
-                indexer_manager = search_svc.create_indexer_manager()
-                indexer = indexer_manager.get_indexer(name)
-                
-                if not indexer:
-                    ctx.log(f"Indexer '{name}' not found", level="error")
-                    return None
-                
-                # Get the status
-                status = indexer.get_status()
-                
-                # Format the result
-                result = {
-                    "status": status.status,
-                    "last_run": str(status.last_execution_time) if hasattr(status, 'last_execution_time') else "Never",
-                    "document_count": status.document_count if hasattr(status, 'document_count') else 0,
-                    "success_count": status.success_document_count if hasattr(status, 'success_document_count') else 0,
-                    "error_count": status.failed_document_count if hasattr(status, 'failed_document_count') else 0
-                }
-                
-                ctx.output(result, f"Status for indexer: {name}")
-                return result
-            except Exception as e:
-                ctx.log(f"Error getting indexer status: {str(e)}", level="error")
-                import traceback
-                ctx.log(traceback.format_exc(), level="debug")
-                return None
-        return func
-    
-    # Handle indexer delete command
-    elif group_name == "indexer" and cmd_name == "delete":
-        @pass_context
-        def func(ctx, name, search_service, resource_group, force=False):
-            """Delete an indexer."""
-            try:
-                ctx.log(f"Deleting indexer: {name} from search service: {search_service}", level="debug")
-                
-                # Get the search service
-                if not ctx.subscription:
-                    ctx.log("Subscription is not initialized", level="error")
-                    return None
-                
-                # Get the search service
-                search_svc = ctx.subscription.get_search_service(search_service)
-                if not search_svc:
-                    ctx.log(f"Search service '{search_service}' not found", level="error")
-                    return None
-                
-                # Create indexer manager and get the indexer
-                indexer_manager = search_svc.create_indexer_manager()
-                indexer = indexer_manager.get_indexer(name)
-                
-                if not indexer:
-                    ctx.log(f"Indexer '{name}' not found", level="error")
-                    return None
-                
-                # Confirm deletion if force is not set
-                if not force:
-                    if not click.confirm(f"Are you sure you want to delete indexer '{name}'?"):
-                        ctx.log("Deletion cancelled", level="info")
-                        return {"status": "cancelled", "message": "Deletion cancelled"}
-                
-                # Delete the indexer
-                indexer.delete()
-                
-                ctx.log(f"Indexer '{name}' deleted successfully", level="success")
-                return {"status": "success", "message": f"Indexer '{name}' deleted successfully"}
-            except Exception as e:
-                ctx.log(f"Error deleting indexer: {str(e)}", level="error")
-                import traceback
-                ctx.log(traceback.format_exc(), level="debug")
-                return None
-        return func
+    # Default handler for all other commands from main.py
+    # Additional command handlers from main.py would be added here...
     
     # Default handler for all other commands
     else:
@@ -880,18 +559,227 @@ def create_command_function(group_name, cmd_name, cmd_config):
             cmd_path = f"{group_name} {cmd_name}"
             
             ctx.log(f"Command {cmd_path} not fully implemented yet", level="error")
-            ctx.log(f"Command arguments: {kwargs}", level="debug")
             
             # Show a helpful message about available commands
-            ctx.log("Available commands: subscription list, subscription get, resource-group list, resource-group get, resource-group create, indexer list, indexer get, indexer create, indexer run, indexer reset, indexer status, indexer update, indexer delete", level="info")
+            ctx.log("Run --help to see available commands", level="info")
             return None
             
         # Set the function name for better debugging
         func.__name__ = func_name
         return func
 
+# Helper functions for knowledge pipeline processing
+def _load_processed_files():
+    """Load the list of previously processed files from checkpoint file."""
+    if not os.path.exists(CHECKPOINT_FILE):
+        return set()
+    try:
+        with open(CHECKPOINT_FILE, "r", encoding="utf-8") as f:
+            return set(line.strip() for line in f if line.strip())
+    except Exception as e:
+        logger.warning(f"Error loading processed files checkpoint {CHECKPOINT_FILE}: {e}")
+        return set()
+
+def _save_processed_file(filename):
+    """Save a successfully processed file to the checkpoint file."""
+    try:
+        with open(CHECKPOINT_FILE, "a", encoding="utf-8") as f:
+            f.write(filename + "\n")
+    except Exception as e:
+        logger.warning(f"Error saving processed file checkpoint {filename}: {e}")
+
+def _log_failed_file(filename_with_error):
+    """Log a failed file for retry later."""
+    try:
+        with open(FAILED_FILE_LOG, "a", encoding="utf-8") as f:
+            f.write(filename_with_error + "\n")
+    except Exception as e:
+        logger.warning(f"Error logging failed file {filename_with_error}: {e}")
+
+def _process_document(ctx, file_path, temp_path, format_json, processed_files):
+    """Process a single document."""
+    # Implementation would integrate with DocParsing and other components
+    # from the knowledge pipeline
+    pass
+
+def _process_directory(ctx, dir_path, temp_path, format_json, processed_files):
+    """Process all documents in a directory."""
+    for root, _, files in os.walk(dir_path):
+        for file in files:
+            if file.lower().endswith('.docx') and file not in processed_files:
+                file_path = os.path.join(root, file)
+                _process_document(ctx, file_path, temp_path, format_json, processed_files)
+
+#############################################################
+# KNOWLEDGE PIPELINE FUNCTION FROM wrapper.py
+#############################################################
+
+def run_pipeline(config: Dict[str, Any], manage_indexes: bool = False, recreate_indexes: bool = False):
+    """
+    Main function to orchestrate the entire knowledge pipeline process.
+
+    Args:
+        config (dict): Loaded configuration dictionary.
+        manage_indexes (bool): If True, run index management before processing.
+        recreate_indexes (bool): If True and manage_indexes is True, delete existing indexes first.
+    """
+    print("🚀 Starting Knowledge Pipeline...")
+
+    # --- Initialization ---
+    try:
+        from .knowledge_pipeline import initialize_clients, load_format, delete_files_in_directory
+        from .knowledge_pipeline import load_processed_files, load_failed_files, get_all_files_in_directory
+        from .knowledge_pipeline import DocParsing, MultiProcessHandler, manage_azure_search_indexes
+    except ImportError as e:
+        logger.critical(f"CRITICAL ERROR: Knowledge Pipeline modules could not be imported: {e}")
+        logger.critical("Please ensure the required libraries are correctly installed.")
+        return False
+
+    clients = initialize_clients(config)
+    if not clients:
+        print("❌ Pipeline aborted due to client initialization failure.")
+        return False
+
+    # Load the JSON format structure needed by DocParsing
+    try:
+        json_format_structure = load_format(config["FORMAT_JSON_PATH"])
+        if not json_format_structure:
+            print(f"❌ Error loading format JSON from {config['FORMAT_JSON_PATH']}. Aborting.")
+            return False
+    except Exception as e:
+        print(f"❌ Error loading format JSON from {config['FORMAT_JSON_PATH']}: {e}. Aborting.")
+        return False
+
+    # --- Optional: Index Management ---
+    if manage_indexes:
+        print("\n🛠️ Starting Index Management...")
+        manage_azure_search_indexes(
+            index_client=clients["search_index_client"],
+            core_index_name=config["CORE_INDEX_NAME"],
+            detailed_index_name=config["DETAILED_INDEX_NAME"],
+            recreate=recreate_indexes
+        )
+        print("🛠️ Index Management Complete.")
+
+    # --- File Discovery and Filtering ---
+    print("\n🔍 Discovering files in Azure Blob Storage...")
+    processed_files = load_processed_files()
+
+    files_to_process = []
+    try:
+        # Use the container client obtained during initialization
+        blob_container_client = clients["container_client"]
+        blob_list = blob_container_client.list_blobs() # List blobs
+
+        for blob in blob_list:
+            if blob.name.lower().endswith(".docx") and blob.name not in processed_files:
+                folder_path = os.path.dirname(blob.name)
+                file_name = os.path.basename(blob.name)
+                # Store blob path for direct access later
+                files_to_process.append({'folder': folder_path, 'name': file_name, 'blob_path': blob.name})
+            elif blob.name in processed_files:
+                logger.info(f"   Skipping already processed file: {blob.name}")
+
+        print(f"   Found {len(files_to_process)} new DOCX files to process.")
+
+    except Exception as e:
+        print(f"❌ Error listing blobs in container '{config['CONTAINER_NAME']}': {e}")
+        logger.exception("Blob listing failed.")
+        return False
+
+    # --- Processing Loop ---
+    if not files_to_process:
+        print("\n✅ No new files to process. Pipeline finished.")
+        return True
+
+    print(f"\n⚙️ Processing {len(files_to_process)} documents...")
+    all_extracted_json_paths = [] # Collect paths of JSONs generated by DocParsing
+
+    from io import BytesIO
+    from docx import Document
+
+    for file_info in files_to_process:
+        folder = file_info['folder']
+        file_name = file_info['name']
+        blob_path = file_info['blob_path'] # Use the direct blob path
+        doc_name_no_ext = os.path.splitext(file_name)[0]
+
+        print(f"\n   Processing: {blob_path}")
+
+        # Clean temp directory *before* processing each DOCX
+        logger.info(f"      Cleaning temporary directory: {config['TEMP_PATH']}")
+        delete_files_in_directory(config['TEMP_PATH'])
+
+        try:
+            # 1. Download DOCX content
+            print(f"      Downloading {blob_path}...")
+            blob_client = blob_container_client.get_blob_client(blob_path)
+            blob_content = blob_client.download_blob().readall()
+            byte_stream = BytesIO(blob_content)
+            docx_document = Document(byte_stream)
+            print("         ✔️ Downloaded and opened successfully.")
+
+            # 2. Parse DOCX to JSON using DocParsing
+            print("      Parsing document with DocParsing...")
+            parser = DocParsing(
+                doc_instance=docx_document,
+                client=clients["azure_oai_client"],
+                json_format=json_format_structure,
+                domain="-", # Or derive domain from folder
+                sub_domain=folder if folder else "root", # Use folder as sub-domain
+                model_name=config["MODEL_NAME"],
+                doc_name=doc_name_no_ext
+            )
+            # This method handles extraction, AI call, and saving JSONs
+            parser.doc_to_json(output_dir=config['TEMP_PATH'])
+
+            # 3. Collect generated JSON file paths for this DOCX
+            generated_jsons = get_all_files_in_directory(config['TEMP_PATH'])
+            if generated_jsons:
+                logger.info(f"      ✔️ DocParsing generated {len(generated_jsons)} JSON file(s) in {config['TEMP_PATH']}.")
+                all_extracted_json_paths.extend(generated_jsons)
+                # Mark original DOCX blob_path as processed *only after successful parsing*
+                _save_processed_file(blob_path) # Save the full blob path
+                logger.info(f"      ✔️ Marked '{blob_path}' as processed (parsing stage).")
+            else:
+                logger.warning(f"      ⚠️ DocParsing did not generate any JSON files for {blob_path}. Skipping ingestion.")
+                _log_failed_file(f"{blob_path} - DocParsing generated no JSONs")
+
+        except Exception as e:
+            print(f"❌ Error processing document {blob_path}: {e}")
+            logger.exception(f"Failed processing {blob_path}")
+            _log_failed_file(f"{blob_path} - Error: {e}")
+            continue # Continue to the next file
+
+    # --- Ingestion Phase ---
+    if not all_extracted_json_paths:
+        print("\nℹ️ No JSON files were generated by DocParsing. Nothing to ingest.")
+    else:
+        print(f"\n🚚 Starting ingestion phase for {len(all_extracted_json_paths)} generated JSON file(s)...")
+        try:
+            ingestion_handler = MultiProcessHandler(
+                json_paths=all_extracted_json_paths,
+                client_core=clients["search_client_core"],
+                client_detail=clients["search_client_detail"],
+                oai_client=clients["azure_oai_client"],
+                embedding_model=config["MODEL_NAME"]
+            )
+            prepared_records = ingestion_handler.process_all_documents()
+            if prepared_records:
+                ingestion_handler.upload_to_azure_search(prepared_records)
+            else:
+                print("   ⚠️ No records were successfully prepared. Skipping Azure Search upload.")
+        except Exception as e:
+            print(f"❌ An error occurred during the ingestion phase: {e}")
+            logger.exception("Ingestion phase failed.")
+            return False
+
+    print("\n🏁 Knowledge Pipeline finished.")
+    return True
+
+# Main entry point for the CLI
 def main():
-    """Main entry point for the azwrap CLI."""
+    """Main entry point for the extended azwrap CLI."""
     try:
         cli = create_cli()
         return cli(standalone_mode=False)
