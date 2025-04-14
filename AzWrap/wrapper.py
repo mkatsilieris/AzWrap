@@ -724,13 +724,13 @@ class SearchService:
     openai_client: Any
     index_name: str
 
-    def __init__(self, resource_group: ResourceGroup, search_service: azsrm.SearchService):
+    def __init__(self, resource_group: ResourceGroup, search_service: azsrm.SearchService, index_name: Optional[str] = os.getenv("INDEX_NAME", "default-index")):
         self.resource_group = resource_group
         self.search_service = search_service
         self.index_client: Optional[azsdi.SearchIndexClient] = None
         self.search_client: Optional[azsd.SearchClient] = None
         self.openai_client: Optional[Any] = None
-        self.index_name: str = os.getenv("INDEX_NAME", "default-index")
+        self.index_name: str = index_name
 
     def get_admin_key(self) -> str:
         search_mgmt_client = SearchManagementClient(self.resource_group.subscription.identity.get_credential(),
@@ -758,10 +758,14 @@ class SearchService:
 
     def get_index(self, index_name: str) -> Optional["SearchIndex"]:
         index_client = self.get_index_client()
-        index = index_client.get_index(index_name)
-        if index and index.name == index_name:
-            return SearchIndex(self, index.name, index.fields, index.vector_search)
-        return None
+        try:
+            index = index_client.get_index(index_name)
+            if index and index.name == index_name:
+                # Fix: Use named parameters instead of positional parameters
+                return SearchIndex(search_service=self, index_name=index.name, fields=index.fields, vector_search=index.vector_search)
+            return None
+        except Exception:
+            return None
 
     def create_or_update_index(self, index_name: str, fields: List[azsdim.SearchField], vector_search: Optional[azsdim.VectorSearch] = None) -> "SearchIndex":
         return SearchIndex(self, index_name, fields, vector_search)
@@ -1227,6 +1231,8 @@ class SearchIndex:
     def __init__(self, search_service: SearchService, index_name: str, fields: List[azsdim.SearchField], vector_search: Optional[azsdim.VectorSearch] = None):
         self.search_service = search_service
         self.index_name = index_name
+        ## TODO remove below line and remove index_name from SearchService
+        self.search_service.index_name = index_name
         self.fields = fields
         self.vector_search = vector_search
 
@@ -1986,21 +1992,6 @@ from azure.core.exceptions import AzureError
 from azure.search.documents import SearchClient
 from azure.search.documents.indexes import SearchIndexClient
 import azure.search.documents.indexes.models as azsdim
-from azure.search.documents.indexes.models import (
-    SearchableField,
-    SearchField,
-    SearchFieldDataType,
-    SearchIndex,
-    SimpleField,
-    VectorSearch,
-    VectorSearchProfile,
-    ExhaustiveKnnAlgorithmConfiguration,
-    ExhaustiveKnnParameters,
-    SemanticConfiguration,
-    SemanticPrioritizedFields,
-    SemanticField,
-    SemanticSearch,
-)
 from openai import AzureOpenAI
 
 # Configure logging
@@ -2016,52 +2007,7 @@ FAILED_FILE_LOG = "failed_files.txt"     # Tracks files that failed processing
 clients = None
 
 #############################################################
-# CONFIGURATION LOADING FUNCTION
-#############################################################
-
-def load_configuration():
-    """
-    Loads configuration from environment variables using dotenv.
-    Validates required variables and returns them as a dictionary.
-    """
-    print("🔧 Loading configuration from .env file...")
-    load_dotenv()
-
-    config = {
-        "AZURE_TENANT_ID": os.getenv("AZURE_TENANT_ID"),
-        "AZURE_CLIENT_ID": os.getenv("AZURE_CLIENT_ID"),
-        "AZURE_CLIENT_SECRET": os.getenv("AZURE_CLIENT_SECRET"),
-        "AZURE_SUBSCRIPTION_ID": os.getenv("AZURE_SUBSCRIPTION_ID"),
-        "RESOURCE_GROUP": os.getenv("RESOURCE_GROUP"),
-        "TARGET_ACCOUNT_NAME": os.getenv("TARGET_ACCOUNT_NAME"), # OpenAI Account
-        "ACCOUNT_NAME": os.getenv("ACCOUNT_NAME"), # Storage Account
-        "CONTAINER_NAME": os.getenv("CONTAINER_NAME"),
-        "SEARCH_SERVICE_NAME": os.getenv("SEARCH_SERVICE_NAME"),
-        "CORE_INDEX_NAME": os.getenv("CORE_INDEX_NAME"),
-        "DETAILED_INDEX_NAME": os.getenv("DETAILED_INDEX_NAME"),
-        "MODEL_NAME": os.getenv("MODEL_NAME"), # OpenAI Model
-        # Consider adding TEMP_PATH and FORMAT_JSON_PATH here if they need to be configurable
-        "TEMP_PATH": r"C:\Users\agkithko\OneDrive - Netcompany\Desktop\AzWrap-1\temp_json", # Default, consider making configurable
-        "FORMAT_JSON_PATH": r"C:\Users\agkithko\OneDrive - Netcompany\Desktop\AzWrap-1\knowledge_pipeline_from_docx\format.json" # Default, consider making configurable
-    }
-
-    # Validate essential variables
-    required_vars = [
-        "AZURE_TENANT_ID", "AZURE_CLIENT_ID", "AZURE_CLIENT_SECRET", "AZURE_SUBSCRIPTION_ID",
-        "RESOURCE_GROUP", "ACCOUNT_NAME", "CONTAINER_NAME", "SEARCH_SERVICE_NAME",
-        "CORE_INDEX_NAME", "DETAILED_INDEX_NAME", "TARGET_ACCOUNT_NAME", "MODEL_NAME",
-        "TEMP_PATH", "FORMAT_JSON_PATH"
-    ]
-    missing_vars = [var for var in required_vars if not config.get(var)]
-    if missing_vars:
-        logger.error(f"❌ Error: Missing required environment variables or config: {', '.join(missing_vars)}")
-        sys.exit(1) # Exit if configuration is incomplete
-
-    logger.info("✅ Configuration loaded successfully.")
-    return config
-
-#############################################################
-# UTILITY FUNCTIONS (from main.py)
+# UTILITY FUNCTIONS 
 #############################################################
 
 def load_format(format_path):
@@ -2135,7 +2081,7 @@ def get_all_files_in_directory(directory_path):
     return file_list
 
 #############################################################
-# CHECKPOINTING FUNCTIONS (from main.py)
+# CHECKPOINTING FUNCTIONS 
 #############################################################
 
 def load_processed_files():
@@ -2197,7 +2143,7 @@ def load_failed_files():
         return set()
 
 #############################################################
-# AZURE CLIENT INITIALIZATION (Adapted from main.py)
+# AZURE CLIENT INITIALIZATION 
 #############################################################
 # Assuming AzWrap is installed or available in the path
 # Add basic error handling for the AzWrap import
@@ -2234,7 +2180,7 @@ def initialize_clients(config: Dict[str, Any]):
         clients_dict["identity"] = Identity(tenant_id=config["AZURE_TENANT_ID"], client_id=config["AZURE_CLIENT_ID"], client_secret=config["AZURE_CLIENT_SECRET"])
         subscription_info = clients_dict["identity"].get_subscription(config["AZURE_SUBSCRIPTION_ID"])
         clients_dict["sub"] = Subscription(identity=clients_dict["identity"], subscription=subscription_info, subscription_id=subscription_info.subscription_id)
-        logger.info(f"      ✔️ Subscription '{clients_dict['sub'].subscription.display_name}' obtained.")
+        # logger.info(f"      ✔️ Subscription '{clients_dict['sub'].subscription.display_name}' obtained.")
 
         # 2. Resource Group
         print(f"   Getting resource group '{config['RESOURCE_GROUP']}'...")
@@ -2286,7 +2232,7 @@ def initialize_clients(config: Dict[str, Any]):
         return None # Indicate failure
 
 #############################################################
-# DOC PARSING CLASS (from doc_parsing.py)
+# DOC PARSING CLASS 
 #############################################################
 
 class DocParsing:
@@ -2685,7 +2631,7 @@ class DocParsing:
         return # Explicit return
 
 #############################################################
-# JSON PROCESSING CLASS (from json_processing.py)
+# JSON PROCESSING CLASS 
 #############################################################
 
 class ProcessHandler:
@@ -2847,7 +2793,7 @@ class ProcessHandler:
         return core_record, detailed_records
 
 #############################################################
-# INGESTION CLASS (from ingestion.py)
+# INGESTION CLASS 
 #############################################################
 
 class MultiProcessHandler:
@@ -3019,127 +2965,127 @@ class MultiProcessHandler:
         print(f"   📊 Summary: Detailed Records (Uploaded: {total_detailed_uploaded}, Failed: {total_detailed_failed})")
 
 #############################################################
-# AZURE SEARCH INDEX CREATION FUNCTIONS (from index_creation.py)
+# AZURE SEARCH INDEX CREATION FUNCTIONS 
 #############################################################
 
-def create_vector_search_configuration() -> VectorSearch:
+def create_vector_search_configuration() -> azsdim.VectorSearch:
     """Create vector search configuration."""
     logger.info("Creating vector search configuration...")
     # Using ExhaustiveKnn based on index_creation.py example
-    return VectorSearch(
+    return azsdim.VectorSearch(
         algorithms=[
-            ExhaustiveKnnAlgorithmConfiguration(
+            azsdim.ExhaustiveKnnAlgorithmConfiguration(
                 name='vector-config',
                 kind='exhaustiveKnn',
-                parameters=ExhaustiveKnnParameters(metric="cosine")
+                parameters=azsdim.ExhaustiveKnnParameters(metric="cosine")
             )
         ],
         profiles=[
-            VectorSearchProfile(
+            azsdim.VectorSearchProfile(
                 name='vector-search-profile',
                 algorithm_configuration_name='vector-config',
             )
         ]
     )
 
-def create_enhanced_core_df_index(index_name: str, vector_config: VectorSearch) -> AzureSDKSearchIndex: # Use aliased type hint
+def create_enhanced_core_df_index(index_name: str, vector_config: azsdim.VectorSearch) -> AzureSDKSearchIndex: # Use aliased type hint
     """Create index schema for core document dataframe."""
     logger.info(f"Defining schema for core index: {index_name}")
     fields=[
         # Key and Core Identifiers
-        SimpleField(name="process_id", type=SearchFieldDataType.String, key=True, filterable=True, sortable=True, searchable=True, retrievable=True), # searchable=True added based on combined_pipeline
-        SearchableField(name="process_name", type=SearchFieldDataType.String, searchable=True, retrievable=True, filterable=True, sortable=True, analyzer_name='el.lucene'), # sortable=True added
-        SearchableField(name="doc_name", type=SearchFieldDataType.String, searchable=True, retrievable=True, filterable=True, analyzer_name='el.lucene'),
+        azsdim.SimpleField(name="process_id", type=azsdim.SearchFieldDataType.String, key=True, filterable=True, sortable=True, searchable=True, retrievable=True), # searchable=True added based on combined_pipeline
+        azsdim.SearchableField(name="process_name", type=azsdim.SearchFieldDataType.String, searchable=True, retrievable=True, filterable=True, sortable=True, analyzer_name='el.lucene'), # sortable=True added
+        azsdim.SearchableField(name="doc_name", type=azsdim.SearchFieldDataType.String, searchable=True, retrievable=True, filterable=True, analyzer_name='el.lucene'),
 
         # Hierarchical/Categorical Fields
-        SearchableField(name="domain", type=SearchFieldDataType.String, searchable=True, retrievable=True, filterable=True, facetable=True, analyzer_name='el.lucene'), # facetable=True added
-        SearchableField(name="sub_domain", type=SearchFieldDataType.String, searchable=True, retrievable=True, filterable=True, facetable=True, analyzer_name='el.lucene'), # facetable=True added
-        SearchableField(name="functional_area", type=SearchFieldDataType.String, searchable=True, retrievable=True, filterable=True, facetable=True, analyzer_name='el.lucene'), # Added filterable/facetable
-        SearchableField(name="functional_subarea", type=SearchFieldDataType.String, searchable=True, retrievable=True, filterable=True, facetable=True, analyzer_name='el.lucene'), # Added filterable/facetable
-        SearchableField(name="process_group", type=SearchFieldDataType.String, searchable=True, retrievable=True, filterable=True, facetable=True, analyzer_name='el.lucene'), # Added filterable/facetable
-        SearchableField(name="process_subgroup", type=SearchFieldDataType.String, searchable=True, retrievable=True, filterable=True, facetable=True, analyzer_name='el.lucene'), # Added filterable/facetable
+        azsdim.SearchableField(name="domain", type=azsdim.SearchFieldDataType.String, searchable=True, retrievable=True, filterable=True, facetable=True, analyzer_name='el.lucene'), # facetable=True added
+        azsdim.SearchableField(name="sub_domain", type=azsdim.SearchFieldDataType.String, searchable=True, retrievable=True, filterable=True, facetable=True, analyzer_name='el.lucene'), # facetable=True added
+        azsdim.SearchableField(name="functional_area", type=azsdim.SearchFieldDataType.String, searchable=True, retrievable=True, filterable=True, facetable=True, analyzer_name='el.lucene'), # Added filterable/facetable
+        azsdim.SearchableField(name="functional_subarea", type=azsdim.SearchFieldDataType.String, searchable=True, retrievable=True, filterable=True, facetable=True, analyzer_name='el.lucene'), # Added filterable/facetable
+        azsdim.SearchableField(name="process_group", type=azsdim.SearchFieldDataType.String, searchable=True, retrievable=True, filterable=True, facetable=True, analyzer_name='el.lucene'), # Added filterable/facetable
+        azsdim.SearchableField(name="process_subgroup", type=azsdim.SearchFieldDataType.String, searchable=True, retrievable=True, filterable=True, facetable=True, analyzer_name='el.lucene'), # Added filterable/facetable
 
         # Content and Metadata Fields (using String for lists/arrays)
-        SearchableField(name="reference_documents", type=SearchFieldDataType.String, searchable=True, retrievable=True, analyzer_name='el.lucene'),
-        SearchableField(name="related_products", type=SearchFieldDataType.String, searchable=True, retrievable=True, filterable=True, analyzer_name='el.lucene'), # filterable=True added
-        SearchableField(name="additional_information", type=SearchFieldDataType.String, searchable=True, retrievable=True, analyzer_name='el.lucene'),
-        SearchableField(name="non_llm_summary", type=SearchFieldDataType.String, searchable=True, retrievable=True, analyzer_name='el.lucene'),
+        azsdim.SearchableField(name="reference_documents", type=azsdim.SearchFieldDataType.String, searchable=True, retrievable=True, analyzer_name='el.lucene'),
+        azsdim.SearchableField(name="related_products", type=azsdim.SearchFieldDataType.String, searchable=True, retrievable=True, filterable=True, analyzer_name='el.lucene'), # filterable=True added
+        azsdim.SearchableField(name="additional_information", type=azsdim.SearchFieldDataType.String, searchable=True, retrievable=True, analyzer_name='el.lucene'),
+        azsdim.SearchableField(name="non_llm_summary", type=azsdim.SearchFieldDataType.String, searchable=True, retrievable=True, analyzer_name='el.lucene'),
 
         # Vector Field
-        SearchField(
+        azsdim.SearchField(
             name="embedding_summary", # Field containing the vector embedding
-            type=SearchFieldDataType.Collection(SearchFieldDataType.Single),
+            type=azsdim.SearchFieldDataType.Collection(azsdim.SearchFieldDataType.Single),
             searchable=True, # Enables vector search
             vector_search_dimensions=3072, # Dimension (e.g., text-embedding-3-large)
             vector_search_profile_name="vector-search-profile" # Link profile
         ),
     ]
-    semantic_config = SemanticConfiguration(
+    semantic_config = azsdim.SemanticConfiguration(
         name="enhanced-core-df-semantic-config",
-        prioritized_fields=SemanticPrioritizedFields(
-            title_field=SemanticField(field_name="process_name"),
-            content_fields=[SemanticField(field_name="non_llm_summary")],
+        prioritized_fields=azsdim.SemanticPrioritizedFields(
+            title_field=azsdim.SemanticField(field_name="process_name"),
+            content_fields=[azsdim.SemanticField(field_name="non_llm_summary")],
             keywords_fields=[
-                SemanticField(field_name="domain"), SemanticField(field_name="sub_domain"),
-                SemanticField(field_name="functional_area"), SemanticField(field_name="functional_subarea"),
-                SemanticField(field_name="process_group"), SemanticField(field_name="process_subgroup"),
-                SemanticField(field_name="related_products") # Added based on combined_pipeline
+                azsdim.SemanticField(field_name="domain"), azsdim.SemanticField(field_name="sub_domain"),
+                azsdim.SemanticField(field_name="functional_area"), azsdim.SemanticField(field_name="functional_subarea"),
+                azsdim.SemanticField(field_name="process_group"), azsdim.SemanticField(field_name="process_subgroup"),
+                azsdim.SemanticField(field_name="related_products") # Added based on combined_pipeline
             ]
         )
     )
     return AzureSDKSearchIndex( # Use aliased name
         name=index_name,
         fields=fields,
-        semantic_search=SemanticSearch(configurations=[semantic_config]),
+        semantic_search=azsdim.SemanticSearch(configurations=[semantic_config]),
         vector_search=vector_config
     )
 
-def create_enhanced_detailed_df_index(index_name: str, vector_config: VectorSearch) -> AzureSDKSearchIndex: # Use aliased type hint
+def create_enhanced_detailed_df_index(index_name: str, vector_config: azsdim.VectorSearch) -> AzureSDKSearchIndex: # Use aliased type hint
     """Create index schema for detailed document dataframe (steps)."""
     logger.info(f"Defining schema for detailed index: {index_name}")
     fields=[
         # Key and Linking Fields
-        SimpleField(name="id", type=SearchFieldDataType.String, key=True, filterable=True, searchable=True, retrievable=True), # searchable=True added
-        SimpleField(name="process_id", type=SearchFieldDataType.String, filterable=True, sortable=True, searchable=True, retrievable=True), # sortable=True, searchable=True added
+        azsdim.SimpleField(name="id", type=azsdim.SearchFieldDataType.String, key=True, filterable=True, searchable=True, retrievable=True), # searchable=True added
+        azsdim.SimpleField(name="process_id", type=azsdim.SearchFieldDataType.String, filterable=True, sortable=True, searchable=True, retrievable=True), # sortable=True, searchable=True added
 
         # Step Specific Fields
-        SimpleField(name="step_number", type=SearchFieldDataType.Int64, filterable=True, sortable=True, retrievable=True),
-        SearchableField(name="step_name", type=SearchFieldDataType.String, searchable=True, retrievable=True, analyzer_name='el.lucene'),
-        SearchableField(name="step_content", type=SearchFieldDataType.String, searchable=True, retrievable=True, analyzer_name='el.lucene'),
-        SearchableField(name="documents_used", type=SearchFieldDataType.String, searchable=True, retrievable=True, filterable=True, analyzer_name='el.lucene'), # filterable=True added
-        SearchableField(name="systems_used", type=SearchFieldDataType.String, searchable=True, retrievable=True, filterable=True, analyzer_name='el.lucene'), # filterable=True added
+        azsdim.SimpleField(name="step_number", type=azsdim.SearchFieldDataType.Int64, filterable=True, sortable=True, retrievable=True),
+        azsdim.SearchableField(name="step_name", type=azsdim.SearchFieldDataType.String, searchable=True, retrievable=True, analyzer_name='el.lucene'),
+        azsdim.SearchableField(name="step_content", type=azsdim.SearchFieldDataType.String, searchable=True, retrievable=True, analyzer_name='el.lucene'),
+        azsdim.SearchableField(name="documents_used", type=azsdim.SearchFieldDataType.String, searchable=True, retrievable=True, filterable=True, analyzer_name='el.lucene'), # filterable=True added
+        azsdim.SearchableField(name="systems_used", type=azsdim.SearchFieldDataType.String, searchable=True, retrievable=True, filterable=True, analyzer_name='el.lucene'), # filterable=True added
 
         # Vector Fields
-        SearchField(
+        azsdim.SearchField(
             name="embedding_title",
-            type=SearchFieldDataType.Collection(SearchFieldDataType.Single),
+            type=azsdim.SearchFieldDataType.Collection(azsdim.SearchFieldDataType.Single),
             searchable=True,
             vector_search_dimensions=3072,
             vector_search_profile_name="vector-search-profile"
         ),
-        SearchField(
+        azsdim.SearchField(
             name="embedding_content",
-            type=SearchFieldDataType.Collection(SearchFieldDataType.Single),
+            type=azsdim.SearchFieldDataType.Collection(azsdim.SearchFieldDataType.Single),
             searchable=True,
             vector_search_dimensions=3072,
             vector_search_profile_name="vector-search-profile"
         )
     ]
-    semantic_config = SemanticConfiguration(
+    semantic_config = azsdim.SemanticConfiguration(
         name="enhanced-detailed-df-semantic-config",
-        prioritized_fields=SemanticPrioritizedFields(
-            title_field=SemanticField(field_name="step_name"),
-            content_fields=[SemanticField(field_name="step_content")],
+        prioritized_fields=azsdim.SemanticPrioritizedFields(
+            title_field=azsdim.SemanticField(field_name="step_name"),
+            content_fields=[azsdim.SemanticField(field_name="step_content")],
             keywords_fields=[ # Added based on combined_pipeline
-                 SemanticField(field_name="documents_used"),
-                 SemanticField(field_name="systems_used")
+                 azsdim.SemanticField(field_name="documents_used"),
+                 azsdim.SemanticField(field_name="systems_used")
             ]
         )
     )
     return AzureSDKSearchIndex( # Use aliased name
         name=index_name,
         fields=fields,
-        semantic_search=SemanticSearch(configurations=[semantic_config]),
+        semantic_search=azsdim.SemanticSearch(configurations=[semantic_config]),
         vector_search=vector_config
     )
 
@@ -3195,201 +3141,54 @@ def manage_azure_search_indexes(index_client: SearchIndexClient, core_index_name
         logger.critical(f"A critical error occurred during index management: {e}")
         logger.exception("Index management failed.")
 
+def main():
+    """Execute the AzWrap pipeline run command."""
+    print("🚀 Starting AzWrap Pipeline Run")
+    
+    # Load configuration from environment variables
+    load_dotenv()
+    
+    # Add required config items for the pipeline
+    pipeline_config = {
+        "AZURE_TENANT_ID": os.getenv("AZURE_TENANT_ID"),
+        "AZURE_CLIENT_ID": os.getenv("AZURE_CLIENT_ID"),
+        "AZURE_CLIENT_SECRET": os.getenv("AZURE_CLIENT_SECRET"),
+        "AZURE_SUBSCRIPTION_ID": os.getenv("AZURE_SUBSCRIPTION_ID"),
+        "RESOURCE_GROUP": os.getenv("RESOURCE_GROUP"),
+        "TARGET_ACCOUNT_NAME": os.getenv("TARGET_ACCOUNT_NAME"),
+        "ACCOUNT_NAME": os.getenv("ACCOUNT_NAME"),
+        "CONTAINER_NAME": os.getenv("CONTAINER_NAME"),
+        "SEARCH_SERVICE_NAME": os.getenv("SEARCH_SERVICE_NAME"),
+        "CORE_INDEX_NAME": os.getenv("CORE_INDEX_NAME"),
+        "DETAILED_INDEX_NAME": os.getenv("DETAILED_INDEX_NAME"),
+        "MODEL_NAME": os.getenv("MODEL_NAME"),
+        "TEMP_PATH": os.getenv("TEMP_PATH", os.path.join(os.getcwd(), "temp_json")),
+        "FORMAT_JSON_PATH": os.getenv("FORMAT_JSON_PATH", os.path.join(os.getcwd(), "AzWrap", "format.json")),
+    }
+    
+    # Check for required config
+    missing = [key for key, value in pipeline_config.items() if not value]
+    if missing:
+        print(f"❌ Missing required configuration: {', '.join(missing)}")
+        print("Set these variables in your .env file")
+        return 1
+    
+    # Set parameters for the pipeline run
+    manage_indexes = False  # Set to True if you want to manage indexes
+    recreate_indexes = False  # Set to True if you want to recreate indexes
+    
+    print("\n🔧 Pipeline Configuration:")
+    print(f"- Manage Indexes: {manage_indexes}")
+    print(f"- Recreate Indexes: {recreate_indexes}")
+    
+    # Call the run_pipeline function from AzWrap.main
+    from AzWrap.main import run_pipeline
+    result = run_pipeline(pipeline_config, manage_indexes, recreate_indexes)
+    
+    print("\n✅ Pipeline execution completed")
+    return 0
 
-#############################################################
-# MAIN EXECUTION LOGIC (Adapted from main.py)
-#############################################################
-
-def run_pipeline(config: Dict[str, Any], manage_indexes: bool = False, recreate_indexes: bool = False):
-    """
-    Main function to orchestrate the entire knowledge pipeline process.
-
-    Args:
-        config (dict): Loaded configuration dictionary.
-        manage_indexes (bool): If True, run index management before processing.
-        recreate_indexes (bool): If True and manage_indexes is True, delete existing indexes first.
-    """
-    global clients # Use the global clients variable
-
-    print("🚀 Starting Knowledge Pipeline...")
-
-    # --- Initialization ---
-    clients = initialize_clients(config)
-    if not clients:
-        print("❌ Pipeline aborted due to client initialization failure.")
-        return
-
-    # Load the JSON format structure needed by DocParsing
-    try:
-        json_format_structure = load_format(config["FORMAT_JSON_PATH"])
-    except Exception as e:
-        print(f"❌ Error loading format JSON from {config['FORMAT_JSON_PATH']}: {e}. Aborting.")
-        return
-
-    # --- Optional: Index Management ---
-    if manage_indexes:
-        print("\n🛠️ Starting Index Management...")
-        manage_azure_search_indexes(
-            index_client=clients["search_index_client"],
-            core_index_name=config["CORE_INDEX_NAME"],
-            detailed_index_name=config["DETAILED_INDEX_NAME"],
-            recreate=recreate_indexes
-        )
-        print("🛠️ Index Management Complete.")
-        # Decide if you want to exit after index management or continue processing
-        # Consider adding a command-line flag for this behaviour
-        # return # Example: exit after managing indexes
-
-    # --- File Discovery and Filtering ---
-    print("\n🔍 Discovering files in Azure Blob Storage...")
-    processed_files = load_processed_files()
-    # failed_files_log = load_failed_files() # Consider if retry logic is needed
-
-    files_to_process = []
-    try:
-        # Use the container client obtained during initialization
-        blob_container_client = clients["container_client"]
-        blob_list = blob_container_client.list_blobs() # List blobs
-
-        for blob in blob_list:
-            if blob.name.lower().endswith(".docx") and blob.name not in processed_files:
-                 folder_path = os.path.dirname(blob.name)
-                 file_name = os.path.basename(blob.name)
-                 # Store blob path for direct access later
-                 files_to_process.append({'folder': folder_path, 'name': file_name, 'blob_path': blob.name})
-            elif blob.name in processed_files:
-                 logger.info(f"   Skipping already processed file: {blob.name}")
-
-        print(f"   Found {len(files_to_process)} new DOCX files to process.")
-
-    except Exception as e:
-        print(f"❌ Error listing blobs in container '{config['CONTAINER_NAME']}': {e}")
-        logger.exception("Blob listing failed.")
-        return # Abort if file discovery fails
-
-    # --- Processing Loop ---
-    if not files_to_process:
-        print("\n✅ No new files to process. Pipeline finished.")
-        return
-
-    print(f"\n⚙️ Processing {len(files_to_process)} documents...")
-    all_extracted_json_paths = [] # Collect paths of JSONs generated by DocParsing
-
-    for file_info in tqdm(files_to_process, desc="Processing Documents"):
-        folder = file_info['folder']
-        file_name = file_info['name']
-        blob_path = file_info['blob_path'] # Use the direct blob path
-        doc_name_no_ext = os.path.splitext(file_name)[0]
-
-        print(f"\n   Processing: {blob_path}")
-
-        # Clean temp directory *before* processing each DOCX
-        # This ensures isolation but check if intermediate JSONs need persistence across failures
-        logger.info(f"      Cleaning temporary directory: {config['TEMP_PATH']}")
-        delete_files_in_directory(config['TEMP_PATH'])
-
-        try:
-            # 1. Download DOCX content
-            print(f"      Downloading {blob_path}...")
-            blob_client = blob_container_client.get_blob_client(blob_path)
-            blob_content = blob_client.download_blob().readall()
-            byte_stream = BytesIO(blob_content)
-            docx_document = Document(byte_stream)
-            print("         ✔️ Downloaded and opened successfully.")
-
-            # 2. Parse DOCX to JSON using DocParsing
-            print("      Parsing document with DocParsing...")
-            parser = DocParsing(
-                doc_instance=docx_document,
-                client=clients["azure_oai_client"],
-                json_format=json_format_structure,
-                domain="-", # Or derive domain from folder
-                sub_domain=folder if folder else "root", # Use folder as sub-domain
-                model_name=config["MODEL_NAME"],
-                doc_name=doc_name_no_ext
-            )
-            # This method now handles extraction, AI call, and saving JSONs
-            parser.doc_to_json(output_dir=config['TEMP_PATH'])
-
-            # 3. Collect generated JSON file paths for this DOCX
-            generated_jsons = get_all_files_in_directory(config['TEMP_PATH'])
-            if generated_jsons:
-                 logger.info(f"      ✔️ DocParsing generated {len(generated_jsons)} JSON file(s) in {config['TEMP_PATH']}.")
-                 all_extracted_json_paths.extend(generated_jsons)
-                 # Mark original DOCX blob_path as processed *only after successful parsing*
-                 save_processed_file(blob_path) # Save the full blob path
-                 logger.info(f"      ✔️ Marked '{blob_path}' as processed (parsing stage).")
-            else:
-                 logger.warning(f"      ⚠️ DocParsing did not generate any JSON files for {blob_path}. Skipping ingestion.")
-                 log_failed_file(f"{blob_path} - DocParsing generated no JSONs")
-
-        except Exception as e:
-            print(f"❌ Error processing document {blob_path}: {e}")
-            logger.exception(f"Failed processing {blob_path}")
-            log_failed_file(f"{blob_path} - Error: {e}")
-            continue # Continue to the next file
-
-    # --- Ingestion Phase ---
-    if not all_extracted_json_paths:
-         print("\nℹ️ No JSON files were generated by DocParsing. Nothing to ingest.")
-    else:
-         print(f"\n🚚 Starting ingestion phase for {len(all_extracted_json_paths)} generated JSON file(s)...")
-         try:
-              ingestion_handler = MultiProcessHandler(
-                   json_paths=all_extracted_json_paths,
-                   client_core=clients["search_client_core"],
-                   client_detail=clients["search_client_detail"],
-                   oai_client=clients["azure_oai_client"],
-                   embedding_model=config["MODEL_NAME"]
-              )
-              prepared_records = ingestion_handler.process_all_documents()
-              if prepared_records:
-                   ingestion_handler.upload_to_azure_search(prepared_records)
-              else:
-                   print("   ⚠️ No records were successfully prepared. Skipping Azure Search upload.")
-         except Exception as e:
-              print(f"❌ An error occurred during the ingestion phase: {e}")
-              logger.exception("Ingestion phase failed.")
-
-    print("\n🏁 Knowledge Pipeline finished.")
-
-
-#############################################################
-# COMMAND LINE INTERFACE (CLI) SETUP
-#############################################################
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Knowledge Pipeline for processing DOCX files from Azure Blob Storage.")
-
-    parser.add_argument(
-        '--manage-indexes',
-        action='store_true',
-        help='Run index management tasks (list, create, or recreate indexes) before processing files.'
-    )
-    parser.add_argument(
-        '--recreate-indexes',
-        action='store_true',
-        help='If --manage-indexes is set, delete existing indexes before creating new ones. Use with caution!'
-    )
-    # Add more arguments if needed, e.g., to specify config file path, temp dir, etc.
-    # parser.add_argument('--config', type=str, default='.env', help='Path to the environment configuration file.')
-    # parser.add_argument('--temp-dir', type=str, help='Override temporary directory path.')
-
-    args = parser.parse_args()
-
-    # Load configuration first
-    pipeline_config = load_configuration()
-
-    # Override config with CLI args if provided (example for temp-dir)
-    # if args.temp_dir:
-    #     pipeline_config["TEMP_PATH"] = args.temp_dir
-    #     logger.info(f"Overriding TEMP_PATH with CLI argument: {args.temp_dir}")
-
-    # Run the main pipeline function with CLI arguments
-    run_pipeline(
-        config=pipeline_config,
-        manage_indexes=args.manage_indexes,
-        recreate_indexes=args.recreate_indexes
-    )
-
+    sys.exit(main())
 # >>>--- End of code from AzWrap/combined_pipeline.py ---<<<

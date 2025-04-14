@@ -35,7 +35,7 @@ except ImportError:
 from .cli_config import CLI_CONFIG, EXTENDED_CLI_CONFIG
 
 # Set up logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.ERROR, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 # Files for tracking processing progress
@@ -369,60 +369,6 @@ def create_command_function(group_name, cmd_name, cmd_config):
                 return None
         return func
     
-    # Handle knowledge-pipeline command
-    elif group_name == "knowledge-pipeline" and cmd_name == "run":
-        @pass_context
-        def func(ctx, source_path, temp_path=None, format_json=None):
-            """Run the knowledge pipeline to process documents."""
-            try:
-                ctx.log(f"Starting knowledge pipeline processing from {source_path}", level="debug")
-                
-                if not ctx.subscription:
-                    ctx.log("Subscription is not initialized", level="error")
-                    return None
-                
-                # Set default paths if not provided
-                if not temp_path:
-                    temp_path = os.path.join(os.getcwd(), "temp_json")
-                    os.makedirs(temp_path, exist_ok=True)
-                
-                if not format_json:
-                    # Try to find format.json in standard locations
-                    potential_paths = [
-                        os.path.join(os.getcwd(), "format.json"),
-                        os.path.join(os.path.dirname(os.path.dirname(__file__)), "knowledge_pipeline_from_docx", "format.json")
-                    ]
-                    for path in potential_paths:
-                        if os.path.exists(path):
-                            format_json = path
-                            break
-                    
-                    if not format_json:
-                        ctx.log("format.json not found. Please specify the path using --format-json", level="error")
-                        return None
-                
-                # Load processed files tracking
-                processed_files = _load_processed_files()
-                
-                # Process the source path (file or directory)
-                if os.path.isfile(source_path):
-                    ctx.log(f"Processing single file: {source_path}")
-                    if source_path.lower().endswith('.docx'):
-                        _process_document(ctx, source_path, temp_path, format_json, processed_files)
-                elif os.path.isdir(source_path):
-                    ctx.log(f"Processing directory: {source_path}")
-                    _process_directory(ctx, source_path, temp_path, format_json, processed_files)
-                else:
-                    ctx.log(f"Source path {source_path} does not exist", level="error")
-                    return None
-                
-                return {"status": "completed", "message": "Document processing completed"}
-            except Exception as e:
-                ctx.log(f"Error in knowledge pipeline: {str(e)}", level="error")
-                import traceback
-                ctx.log(traceback.format_exc(), level="debug")
-                return None
-        return func
         
     # Handle pipeline run command
     elif group_name == "pipeline" and cmd_name == "run":
@@ -460,7 +406,7 @@ def create_command_function(group_name, cmd_name, cmd_config):
                     "DETAILED_INDEX_NAME": os.getenv("DETAILED_INDEX_NAME"),
                     "MODEL_NAME": os.getenv("MODEL_NAME"),
                     "TEMP_PATH": os.getenv("TEMP_PATH", os.path.join(os.getcwd(), "temp_json")),
-                    "FORMAT_JSON_PATH": os.getenv("FORMAT_JSON_PATH", os.path.join(os.getcwd(), "format.json")),
+                    "FORMAT_JSON_PATH": os.getenv("FORMAT_JSON_PATH", os.path.join(os.getcwd(), 'Azwrap', "format.json")),
                 }
                 
                 # Check for required config
@@ -531,7 +477,7 @@ def create_command_function(group_name, cmd_name, cmd_config):
                 
                 # Import required functions dynamically to avoid circular imports
                 try:
-                    from .knowledge_pipeline import manage_azure_search_indexes
+                    from .wrapper import manage_azure_search_indexes
                     manage_azure_search_indexes(search_index_client, core_index, detailed_index, recreate)
                     ctx.log("Index creation completed successfully", level="success")
                     return {"status": "completed", "indexes": [core_index, detailed_index]}
@@ -627,9 +573,9 @@ def run_pipeline(config: Dict[str, Any], manage_indexes: bool = False, recreate_
 
     # --- Initialization ---
     try:
-        from .knowledge_pipeline import initialize_clients, load_format, delete_files_in_directory
-        from .knowledge_pipeline import load_processed_files, load_failed_files, get_all_files_in_directory
-        from .knowledge_pipeline import DocParsing, MultiProcessHandler, manage_azure_search_indexes
+        from .wrapper import initialize_clients, load_format, delete_files_in_directory
+        from .wrapper import load_processed_files, load_failed_files, get_all_files_in_directory
+        from .wrapper import DocParsing, MultiProcessHandler, manage_azure_search_indexes
     except ImportError as e:
         logger.critical(f"CRITICAL ERROR: Knowledge Pipeline modules could not be imported: {e}")
         logger.critical("Please ensure the required libraries are correctly installed.")
